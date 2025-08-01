@@ -25,12 +25,14 @@ A Python-based Telegram bot that helps users track their skin health journey wit
 
 ### 1. Environment Setup
 
-Visit `/env-check` page to configure required environment variables:
+Copy `.env.example` to `.env` and fill in the variables below (also
+available via the `/env-check` page):
 
 - **NEXT_PUBLIC_SUPABASE_URL**: Your Supabase project URL
 - **NEXT_PUBLIC_SUPABASE_ANON_KEY**: Supabase anonymous key
 - **TELEGRAM_BOT_TOKEN**: Bot token from @BotFather
 - **OPENAI_API_KEY**: OpenAI API key for GPT-4 analysis
+- **BASE_URL**: URL where your bot is hosted
 
 ### 2. Database Setup
 
