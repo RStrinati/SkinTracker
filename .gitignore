@@ -5,7 +5,23 @@ node_modules/
 # Python artifacts
 __pycache__/
 .venv/
+*.pyc
 
 # Environment files
 .env
 .env.*
+
+# Logs
+*.log
+
+# macOS system files
+.DS_Store
+
+# IDE settings
+.vscode/
+.idea/
+
+# Build outputs
+dist/
+build/
+*.egg-info/
