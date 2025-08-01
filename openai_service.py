@@ -4,8 +4,7 @@ from typing import Dict, List, Any, Optional
 from datetime import datetime
 import json
 
-import openai
-from openai import OpenAI
+from openai import AsyncOpenAI
 
 # Configure logging
 logger = logging.getLogger(__name__)
@@ -16,7 +15,7 @@ class OpenAIService:
         if not self.api_key:
             raise ValueError("OPENAI_API_KEY environment variable is required")
         
-        self.client = OpenAI(api_key=self.api_key)
+        self.client = AsyncOpenAI(api_key=self.api_key)
         self.model = "gpt-4"  # Use GPT-4 for better analysis
 
     async def generate_summary(self, user_logs: Dict[str, List[Dict[str, Any]]]) -> str:
@@ -41,7 +40,7 @@ Keep the response friendly, encouraging, and actionable. Use emojis appropriatel
 Limit response to 300-400 words.
             """
             
-            response = self.client.chat.completions.create(
+            response = await self.client.chat.completions.create(
                 model=self.model,
                 messages=[
                     {"role": "system", "content": "You are a helpful skin health analyst who provides personalized insights based on user data."},
@@ -76,7 +75,7 @@ Keep it supportive and professional. Limit to 100-150 words.
 Remember: This is not medical advice, just general observations for tracking purposes.
             """
             
-            response = self.client.chat.completions.create(
+            response = await self.client.chat.completions.create(
                 model=self.model,
                 messages=[
                     {"role": "system", "content": "You are a supportive skin health tracker assistant. Provide general, non-medical observations about skin photos."},
@@ -113,7 +112,7 @@ Limit response to 200-250 words.
 Important: This is for tracking purposes only, not medical advice.
             """
             
-            response = self.client.chat.completions.create(
+            response = await self.client.chat.completions.create(
                 model=self.model,
                 messages=[
                     {"role": "system", "content": "You are a helpful skin health tracking assistant. Answer questions based on user data while being supportive and informative."},
@@ -152,7 +151,7 @@ Keep suggestions gentle and encouraging. Limit to 250-300 words.
 Remember: These are general suggestions, not medical advice.
             """
             
-            response = self.client.chat.completions.create(
+            response = await self.client.chat.completions.create(
                 model=self.model,
                 messages=[
                     {"role": "system", "content": "You are a skincare routine analyst who provides gentle, data-driven suggestions based on user tracking patterns."},
