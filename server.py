@@ -68,7 +68,12 @@ async def webhook(request: Request):
 async def set_webhook():
     """Set the webhook URL for the Telegram bot."""
     try:
-        webhook_url = f"{os.getenv('BASE_URL')}/webhook"
+        base_url = os.getenv('BASE_URL')
+        if not base_url:
+            logger.error("BASE_URL environment variable is not set")
+            raise HTTPException(status_code=500, detail="BASE_URL environment variable is not configured")
+
+        webhook_url = f"{base_url}/webhook"
         success = await bot.set_webhook(webhook_url)
         
         if success:
