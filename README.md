@@ -196,6 +196,12 @@ cp .env.example .env
 python server.py
 ```
 
+### Running Tests
+```bash
+pip install -r requirements-dev.txt
+pytest
+```
+
 ### Production Deployment
 ```bash
 # Use production WSGI server
