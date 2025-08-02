@@ -10,8 +10,10 @@ class FakeCompletion:
 
 class FakeChat:
     def __init__(self, content):
+        async def create(*args, **kwargs):
+            return FakeCompletion(content)
         self.completions = MagicMock()
-        self.completions.create = MagicMock(return_value=FakeCompletion(content))
+        self.completions.create = create
 
 class FakeClient:
     def __init__(self, content):
@@ -20,11 +22,16 @@ class FakeClient:
 def fake_openai(api_key=None):
     return FakeClient("summary")
 
-@pytest.mark.asyncio
+@pytest.mark.anyio
 async def test_generate_summary(monkeypatch):
     monkeypatch.setenv('OPENAI_API_KEY', 'key')
-    monkeypatch.setattr('openai_service.OpenAI', fake_openai)
+    monkeypatch.setattr('openai_service.AsyncOpenAI', fake_openai)
 
     service = OpenAIService()
     result = await service.generate_summary({'products': [], 'triggers': [], 'symptoms': [], 'photos': []})
     assert result == "summary"
+
+
+@pytest.fixture
+def anyio_backend():
+    return 'asyncio'
