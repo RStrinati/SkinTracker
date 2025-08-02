@@ -6,7 +6,7 @@ from typing import Dict, List, Optional
 import json
 import traceback
 
-from telegram import Update, InlineKeyboardButton, InlineKeyboardMarkup, Bot
+from telegram import Update, InlineKeyboardButton, InlineKeyboardMarkup, Bot, BotCommand
 from telegram.ext import Application, CommandHandler, CallbackQueryHandler, MessageHandler, filters
 from telegram.constants import ParseMode
 
@@ -55,6 +55,9 @@ class SkinHealthBot:
         self.application.add_handler(CommandHandler("start", self.start_command))
         self.application.add_handler(CommandHandler("log", self.log_command))
         self.application.add_handler(CommandHandler("summary", self.summary_command))
+        # Extra UX commands
+        self.application.add_handler(CommandHandler("progress", self.progress_command))
+        self.application.add_handler(CommandHandler("settings", self.settings_command))
         self.application.add_handler(CommandHandler("help", self.help_command))
         
         # Callback query handlers
@@ -66,12 +69,23 @@ class SkinHealthBot:
         # Text message handler for severity rating
         self.application.add_handler(MessageHandler(filters.TEXT & ~filters.COMMAND, self.handle_text))
 
+    async def _setup_persistent_menu(self):
+        """Configure bot command list for quick access."""
+        commands = [
+            BotCommand("log", "📝 Log an entry"),
+            BotCommand("progress", "📊 View progress"),
+            BotCommand("settings", "⚙️ Settings"),
+        ]
+        await self.bot.set_my_commands(commands)
+        await self.bot.set_chat_menu_button()
+
     async def initialize(self):
         """Initialize the bot and database."""
         await self.database.initialize()
         await self.application.initialize()  # 👈 REQUIRED
         await self.application.start()       # 👈 REQUIRED
         self.bot = self.application.bot  # Make sure this is after `initialize()`
+        await self._setup_persistent_menu()
         logger.info("Bot initialized successfully")
 
     async def shutdown(self):
@@ -202,6 +216,32 @@ Ready to start your skin health journey? Use /log to begin! ✨
             await update.message.reply_text(
                 "Sorry, I couldn't generate your summary right now. Please try again later."
             )
+
+    async def progress_command(self, update: Update, context):
+        """Handle /progress command - show user statistics."""
+        user_id = update.effective_user.id
+        try:
+            stats = await self.database.get_user_stats(user_id, days=30)
+            message = (
+                "📊 *30-day Overview*\n"
+                f"• Products logged: {stats.get('product_count', 0)}\n"
+                f"• Triggers logged: {stats.get('trigger_count', 0)}\n"
+                f"• Symptoms logged: {stats.get('symptom_count', 0)}\n"
+                f"• Photos uploaded: {stats.get('photo_count', 0)}"
+            )
+            await update.message.reply_text(message, parse_mode=ParseMode.MARKDOWN)
+        except Exception as e:
+            logger.error(f"Error getting progress: {e}")
+            await update.message.reply_text("Sorry, I couldn't load your progress right now.")
+
+    async def settings_command(self, update: Update, context):
+        """Handle /settings command - show placeholder settings."""
+        keyboard = [[InlineKeyboardButton("➕ Add Condition", callback_data="settings_add_condition")]]
+        reply_markup = InlineKeyboardMarkup(keyboard)
+        await update.message.reply_text(
+            "⚙️ Settings coming soon! Manage your conditions and preferences here.",
+            reply_markup=reply_markup
+        )
 
     async def help_command(self, update: Update, context):
         """Handle /help command - show help information."""
