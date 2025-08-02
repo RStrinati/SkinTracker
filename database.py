@@ -6,6 +6,7 @@ from typing import Dict, List, Optional, Any
 import uuid
 import tempfile
 import aiofiles
+from PIL import Image
 
 from supabase import create_client, Client
 from telegram import File
@@ -159,29 +160,51 @@ class Database:
             file_extension = file.file_path.split('.')[-1] if '.' in file.file_path else 'jpg'
             filename = f"{user_id}_{uuid.uuid4().hex}.{file_extension}"
             
-            # Download file to temporary location
+            logger.info(f"[{user_id}] Starting photo download...")
             with tempfile.NamedTemporaryFile(delete=False, suffix=f'.{file_extension}') as temp_file:
-                await file.download_to_drive(temp_file.name)
-                
-                # Upload to Supabase storage
-                with open(temp_file.name, 'rb') as f:
+                try:
+                    # Timeout for download
+                    async with asyncio.timeout(20):
+                        await file.download_to_drive(temp_file.name)
+                    logger.info(f"[{user_id}] Photo downloaded to temp: {temp_file.name}")
+                except asyncio.TimeoutError:
+                    logger.error(f"[{user_id}] Timeout while downloading photo")
+                    raise
+
+            # Optional: Resize image to reduce file size (comment out if not needed)
+            try:
+                img = Image.open(temp_file.name)
+                img.thumbnail((1024, 1024))  # Resize to 1024px max dimension
+                img.save(temp_file.name)
+                logger.info(f"[{user_id}] Image resized")
+            except Exception as resize_error:
+                logger.warning(f"[{user_id}] Could not resize image: {resize_error}")
+
+            logger.info(f"[{user_id}] Uploading to Supabase...")
+            with open(temp_file.name, 'rb') as f:
+                try:
                     response = self.client.storage.from_('skin-photos').upload(
                         file=f,
                         path=filename,
                         file_options={"content-type": f"image/{file_extension}"}
                     )
-                
-                # Clean up temp file
-                os.unlink(temp_file.name)
-            
+                    logger.info(f"[{user_id}] Upload successful: {filename}")
+                except Exception as upload_error:
+                    logger.error(f"[{user_id}] Error uploading to Supabase: {upload_error}")
+                    raise
+
+            # Clean up temp file
+            os.unlink(temp_file.name)
+
             # Get public URL
-            public_url = self.client.storage.from_('skin-photos').get_public_url(filename)
-            logger.info(f"Uploaded photo for user {user_id}: {filename}")
+            public_url = self.client.storage.from_('skin-photos').get_public_url(f"uploads/{filename}")
+            logger.info(f"[{user_id}] Public URL: {public_url}")
             return public_url
-            
+
         except Exception as e:
-            logger.error(f"Error saving photo for user {user_id}: {e}")
+            logger.error(f"[{user_id}] Error saving photo: {e}")
             raise
+
 
     async def log_photo(self, user_id: int, photo_url: str, analysis: str = None) -> Dict[str, Any]:
         """Log a photo with optional AI analysis."""
