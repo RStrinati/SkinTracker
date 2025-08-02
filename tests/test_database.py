@@ -4,7 +4,7 @@ from unittest.mock import MagicMock
 
 from database import Database
 
-@pytest.mark.asyncio
+@pytest.mark.anyio
 async def test_get_user_logs(monkeypatch):
     # Prepare fake supabase client
     supabase_client = MagicMock()
@@ -45,3 +45,8 @@ async def test_get_user_logs(monkeypatch):
     assert logs['triggers'] == table_data['trigger_logs']
     assert logs['symptoms'] == table_data['symptom_logs']
     assert logs['photos'] == table_data['photo_logs']
+
+
+@pytest.fixture
+def anyio_backend():
+    return 'asyncio'

@@ -93,6 +93,33 @@ Remember: This is not medical advice, just general observations for tracking pur
             logger.error(f"Error analyzing photo: {e}")
             return "Photo uploaded successfully! Continue tracking for personalized insights."
 
+    async def analyze_ingredients(
+        self, product_name: str, ingredients: List[str], conditions: List[str]
+    ) -> str:
+        """Check ingredient list against user conditions."""
+        try:
+            ingredient_list = ", ".join(ingredients)
+            condition_list = ", ".join(conditions) or "none"
+            prompt = (
+                f"Product: {product_name}\n"
+                f"Ingredients: {ingredient_list}\n"
+                f"User conditions: {condition_list}\n\n"
+                "List any ingredients that might conflict with the user's conditions."
+            )
+            response = await self.client.chat.completions.create(
+                model=self.model,
+                messages=[
+                    {"role": "system", "content": "You are a skincare ingredient checker."},
+                    {"role": "user", "content": prompt},
+                ],
+                max_tokens=300,
+                temperature=0.0,
+            )
+            return response.choices[0].message.content
+        except Exception as e:
+            logger.error(f"Error analyzing ingredients: {e}")
+            return "Unable to analyze ingredients right now."
+
     async def answer_skin_question(self, question: str, user_logs: Dict[str, List[Dict[str, Any]]]) -> str:
         """Answer user questions about their skin health based on their data."""
         try:
