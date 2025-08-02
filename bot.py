@@ -4,6 +4,7 @@ import asyncio
 from datetime import datetime, timedelta
 from typing import Dict, List, Optional
 import json
+import traceback
 
 from telegram import Update, InlineKeyboardButton, InlineKeyboardMarkup, Bot
 from telegram.ext import Application, CommandHandler, CallbackQueryHandler, MessageHandler, filters
@@ -25,8 +26,8 @@ class SkinHealthBot:
         if not self.token:
             raise ValueError("TELEGRAM_BOT_TOKEN environment variable is required")
         
-        self.bot = Bot(token=self.token)
         self.application = Application.builder().token(self.token).build()
+        self.bot = None  # Will be set after initialization
         self.database = Database()
         self.openai_service = OpenAIService()
         
@@ -68,12 +69,18 @@ class SkinHealthBot:
     async def initialize(self):
         """Initialize the bot and database."""
         await self.database.initialize()
+        await self.application.initialize()  # 👈 REQUIRED
+        await self.application.start()       # 👈 REQUIRED
+        self.bot = self.application.bot  # Make sure this is after `initialize()`
         logger.info("Bot initialized successfully")
 
     async def shutdown(self):
         """Cleanup resources."""
+        await self.application.stop()
+        await self.application.shutdown()
         await self.database.close()
         logger.info("Bot shut down successfully")
+
 
     async def process_update(self, update_data: dict):
         """Process incoming Telegram update."""
@@ -144,6 +151,7 @@ Ready to start your skin health journey? Use /log to begin! ✨
             
         except Exception as e:
             logger.error(f"Error in start command: {e}")
+            traceback.print_exc()
             await update.message.reply_text(
                 "Sorry, there was an error registering you. Please try again."
             )
