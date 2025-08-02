@@ -5,6 +5,7 @@ import asyncio
 from dotenv import load_dotenv
 import logging
 from bot import SkinHealthBot
+from telegram import Update
 
 # Load environment variables
 load_dotenv()
@@ -54,12 +55,15 @@ async def webhook(request: Request):
     try:
         # Get the update data from Telegram
         update_data = await request.json()
-        
-        # Process the update
-        await bot.process_update(update_data)
-        
+
+        # Convert to Telegram Update object
+        update = Update.de_json(update_data, bot.application.bot)
+
+        # Process the update using the Telegram handler queue
+        await bot.application.update_queue.put(update)
+
         return JSONResponse(content={"status": "ok"})
-    
+
     except Exception as e:
         logger.error(f"Error processing webhook: {e}")
         raise HTTPException(status_code=500, detail="Internal server error")
