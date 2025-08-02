@@ -1,5 +1,7 @@
 from fastapi import FastAPI, Request, HTTPException
 from fastapi.responses import JSONResponse
+from pydantic import BaseModel
+from typing import List
 import os
 import asyncio
 from dotenv import load_dotenv
@@ -55,18 +57,34 @@ async def webhook(request: Request):
     try:
         # Get the update data from Telegram
         update_data = await request.json()
-
-        # Convert to Telegram Update object
-        update = Update.de_json(update_data, bot.application.bot)
-
-        # Process the update using the Telegram handler queue
-        await bot.application.update_queue.put(update)
+        
+        # Process the update
+        await bot.process_update(update_data)
 
         return JSONResponse(content={"status": "ok"})
 
     except Exception as e:
         logger.error(f"Error processing webhook: {e}")
         raise HTTPException(status_code=500, detail="Internal server error")
+
+
+class IngredientRequest(BaseModel):
+    product_name: str
+    ingredients: List[str]
+    conditions: List[str] = []
+
+
+@app.post("/ingredients/analyze")
+async def analyze_ingredients(req: IngredientRequest):
+    """Analyze product ingredients against user conditions."""
+    try:
+        analysis = await bot.openai_service.analyze_ingredients(
+            req.product_name, req.ingredients, req.conditions
+        )
+        return {"analysis": analysis}
+    except Exception as e:
+        logger.error(f"Error analyzing ingredients: {e}")
+        raise HTTPException(status_code=500, detail="Failed to analyze ingredients")
 
 @app.post("/set-webhook")
 async def set_webhook():
