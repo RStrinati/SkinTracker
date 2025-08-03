@@ -12,6 +12,7 @@ from telegram.constants import ParseMode
 
 from database import Database
 from openai_service import OpenAIService
+from reminder_scheduler import ReminderScheduler
 
 # Configure logging
 logging.basicConfig(
@@ -30,6 +31,7 @@ class SkinHealthBot:
         self.bot = None  # Will be set after initialization
         self.database = Database()
         self.openai_service = OpenAIService()
+        self.scheduler: Optional[ReminderScheduler] = None
         
         # Predefined options for logging
         self.products = [
@@ -86,6 +88,8 @@ class SkinHealthBot:
         await self.application.start()       # 👈 REQUIRED
         self.bot = self.application.bot  # Make sure this is after `initialize()`
         await self._setup_persistent_menu()
+        # Initialize reminder scheduler now that bot is available
+        self.scheduler = ReminderScheduler(self.bot)
         logger.info("Bot initialized successfully")
 
     async def shutdown(self):
@@ -93,6 +97,8 @@ class SkinHealthBot:
         await self.application.stop()
         await self.application.shutdown()
         await self.database.close()
+        if self.scheduler:
+            self.scheduler.shutdown()
         logger.info("Bot shut down successfully")
 
 
@@ -161,6 +167,13 @@ Ready to start your skin health journey? Use /log to begin! ✨
             await update.message.reply_text(
                 welcome_message,
                 parse_mode=ParseMode.MARKDOWN
+            )
+
+            # Prompt user to select a reminder time
+            keyboard = self._reminder_time_keyboard()
+            await update.message.reply_text(
+                "Select a time for your daily skin check-in:",
+                reply_markup=keyboard,
             )
             
         except Exception as e:
@@ -320,6 +333,21 @@ Track consistently for best results! 🌟
                 "1 = Very mild\n2 = Mild\n3 = Moderate\n4 = Severe\n5 = Very severe\n\n"
                 "Please type a number from 1 to 5:"
             )
+        elif data.startswith("reminder_"):
+            # User selected a reminder time
+            time_str = data.split("_", 1)[1]
+            await self.database.update_user_reminder(user_id, time_str)
+            if self.scheduler:
+                self.scheduler.schedule_daily_reminder(user_id, time_str)
+            await query.edit_message_text(
+                f"✅ Daily reminder set for {time_str}",
+            )
+
+    def _reminder_time_keyboard(self) -> InlineKeyboardMarkup:
+        """Build keyboard with common reminder time options."""
+        times = ["09:00", "12:00", "18:00"]
+        keyboard = [[InlineKeyboardButton(t, callback_data=f"reminder_{t}")] for t in times]
+        return InlineKeyboardMarkup(keyboard)
 
     async def _show_product_options(self, query):
         """Show product selection keyboard."""

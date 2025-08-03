@@ -39,13 +39,26 @@ class Database:
         # Supabase client doesn't need explicit closing
         logger.info("Database connection closed")
 
-    async def create_user(self, telegram_id: int, username: str = None, 
-                         first_name: str = None, last_name: str = None) -> Dict[str, Any]:
-        """Create or update user in database."""
+    async def create_user(
+        self,
+        telegram_id: int,
+        username: str = None,
+        first_name: str = None,
+        last_name: str = None,
+        timezone: str = "UTC",
+        reminder_time: str = "09:00",
+    ) -> Dict[str, Any]:
+        """Create or update user in database.
+
+        Stores additional user preferences like ``timezone`` and
+        ``reminder_time`` which are required for the daily reminder
+        system.  Both fields default to sensible values so existing code
+        that only supplies the ``telegram_id`` continues to work.
+        """
         try:
             # Check if user already exists
             existing_user = self.client.table('users').select('*').eq('telegram_id', telegram_id).execute()
-            
+
             if existing_user.data:
                 # Update existing user
                 user_data = {
@@ -54,7 +67,12 @@ class Database:
                     'last_name': last_name,
                     'updated_at': datetime.utcnow().isoformat()
                 }
-                
+                # Update reminder settings if provided
+                if timezone:
+                    user_data['timezone'] = timezone
+                if reminder_time:
+                    user_data['reminder_time'] = reminder_time
+
                 response = self.client.table('users').update(user_data).eq('telegram_id', telegram_id).execute()
                 logger.info(f"Updated user: {telegram_id}")
                 return response.data[0]
@@ -65,6 +83,8 @@ class Database:
                     'username': username,
                     'first_name': first_name,
                     'last_name': last_name,
+                    'timezone': timezone,
+                    'reminder_time': reminder_time,
                     'created_at': datetime.utcnow().isoformat(),
                     'updated_at': datetime.utcnow().isoformat()
                 }
@@ -85,6 +105,30 @@ class Database:
         except Exception as e:
             logger.error(f"Error getting user {telegram_id}: {e}")
             return None
+
+    async def update_user_reminder(
+        self, telegram_id: int, reminder_time: str, timezone: Optional[str] = None
+    ) -> Dict[str, Any]:
+        """Update a user's reminder settings."""
+        try:
+            update_data = {
+                'reminder_time': reminder_time,
+                'updated_at': datetime.utcnow().isoformat()
+            }
+            if timezone:
+                update_data['timezone'] = timezone
+
+            response = (
+                self.client.table('users')
+                .update(update_data)
+                .eq('telegram_id', telegram_id)
+                .execute()
+            )
+            logger.info(f"Updated reminder time for user {telegram_id} to {reminder_time}")
+            return response.data[0]
+        except Exception as e:
+            logger.error(f"Error updating reminder time for user {telegram_id}: {e}")
+            raise
 
     async def log_product(self, user_id: int, product_name: str) -> Dict[str, Any]:
         """Log a product usage."""
