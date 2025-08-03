@@ -132,20 +132,98 @@ class Database:
             logger.error(f"Error updating reminder time for user {telegram_id}: {e}")
             raise
 
-    async def log_product(self, user_id: int, product_name: str) -> Dict[str, Any]:
+    async def get_products(self, user_id: int) -> List[Dict[str, Any]]:
+        """Retrieve products for a user including global ones."""
+        try:
+            user = await self.get_user_by_telegram_id(user_id)
+            if not user:
+                return []
+            response = (
+                self.client.table('products')
+                .select('*')
+                .or_(f'user_id.eq.{user["id"]},is_global.eq.true')
+                .execute()
+            )
+            return response.data
+        except Exception as e:
+            logger.error(f"Error retrieving products for user {user_id}: {e}")
+            return []
+
+    async def add_product(
+        self, user_id: int, name: str, product_type: Optional[str] = None, is_global: bool = False
+    ) -> Dict[str, Any]:
+        """Add a product definition."""
+        try:
+            user = await self.get_user_by_telegram_id(user_id)
+            if not user:
+                raise ValueError(f"User {user_id} not found")
+            data = {
+                'user_id': user['id'],
+                'name': name,
+                'type': product_type,
+                'is_global': is_global,
+            }
+            response = self.client.table('products').insert(data).execute()
+            return response.data[0]
+        except Exception as e:
+            logger.error(f"Error adding product for user {user_id}: {e}")
+            raise
+
+    async def get_triggers(self, user_id: int) -> List[Dict[str, Any]]:
+        """Retrieve triggers for a user including global ones."""
+        try:
+            user = await self.get_user_by_telegram_id(user_id)
+            if not user:
+                return []
+            response = (
+                self.client.table('triggers')
+                .select('*')
+                .or_(f'user_id.eq.{user["id"]},is_global.eq.true')
+                .execute()
+            )
+            return response.data
+        except Exception as e:
+            logger.error(f"Error retrieving triggers for user {user_id}: {e}")
+            return []
+
+    async def add_trigger(
+        self, user_id: int, name: str, emoji: Optional[str] = None, is_global: bool = False
+    ) -> Dict[str, Any]:
+        """Add a trigger definition."""
+        try:
+            user = await self.get_user_by_telegram_id(user_id)
+            if not user:
+                raise ValueError(f"User {user_id} not found")
+            data = {
+                'user_id': user['id'],
+                'name': name,
+                'emoji': emoji,
+                'is_global': is_global,
+            }
+            response = self.client.table('triggers').insert(data).execute()
+            return response.data[0]
+        except Exception as e:
+            logger.error(f"Error adding trigger for user {user_id}: {e}")
+            raise
+
+    async def log_product(
+        self, user_id: int, product_name: str, notes: Optional[str] = None, effect: Optional[str] = None
+    ) -> Dict[str, Any]:
         """Log a product usage."""
         try:
             # Get user
             user = await self.get_user_by_telegram_id(user_id)
             if not user:
                 raise ValueError(f"User {user_id} not found")
-            
+
             product_data = {
                 'user_id': user['id'],
                 'product_name': product_name,
+                'effect': effect,
+                'notes': notes,
                 'logged_at': datetime.utcnow().isoformat()
             }
-            
+
             response = self.client.table('product_logs').insert(product_data).execute()
             logger.info(f"Logged product for user {user_id}: {product_name}")
             return response.data[0]
@@ -154,17 +232,20 @@ class Database:
             logger.error(f"Error logging product for user {user_id}: {e}")
             raise
 
-    async def log_trigger(self, user_id: int, trigger_name: str) -> Dict[str, Any]:
+    async def log_trigger(
+        self, user_id: int, trigger_name: str, notes: Optional[str] = None
+    ) -> Dict[str, Any]:
         """Log a trigger."""
         try:
             # Get user
             user = await self.get_user_by_telegram_id(user_id)
             if not user:
                 raise ValueError(f"User {user_id} not found")
-            
+
             trigger_data = {
                 'user_id': user['id'],
                 'trigger_name': trigger_name,
+                'notes': notes,
                 'logged_at': datetime.utcnow().isoformat()
             }
             
@@ -176,7 +257,9 @@ class Database:
             logger.error(f"Error logging trigger for user {user_id}: {e}")
             raise
 
-    async def log_symptom(self, user_id: int, symptom_name: str) -> Dict[str, Any]:
+    async def log_symptom(
+        self, user_id: int, symptom_name: str, severity: int, notes: Optional[str] = None
+    ) -> Dict[str, Any]:
         """Log a symptom."""
         try:
             # Get user
@@ -187,6 +270,8 @@ class Database:
             symptom_data = {
                 'user_id': user['id'],
                 'symptom_name': symptom_name,
+                'severity': severity,
+                'notes': notes,
                 'logged_at': datetime.utcnow().isoformat(),
             }
 
