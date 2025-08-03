@@ -130,25 +130,24 @@ class Database:
             logger.error(f"Error logging trigger for user {user_id}: {e}")
             raise
 
-    async def log_symptom(self, user_id: int, symptom_name: str, severity: int) -> Dict[str, Any]:
-        """Log a symptom with severity rating."""
+    async def log_symptom(self, user_id: int, symptom_name: str) -> Dict[str, Any]:
+        """Log a symptom."""
         try:
             # Get user
             user = await self.get_user_by_telegram_id(user_id)
             if not user:
                 raise ValueError(f"User {user_id} not found")
-            
+
             symptom_data = {
                 'user_id': user['id'],
                 'symptom_name': symptom_name,
-                'severity': severity,
-                'logged_at': datetime.utcnow().isoformat()
+                'logged_at': datetime.utcnow().isoformat(),
             }
-            
+
             response = self.client.table('symptom_logs').insert(symptom_data).execute()
-            logger.info(f"Logged symptom for user {user_id}: {symptom_name} (severity: {severity})")
+            logger.info(f"Logged symptom for user {user_id}: {symptom_name}")
             return response.data[0]
-            
+
         except Exception as e:
             logger.error(f"Error logging symptom for user {user_id}: {e}")
             raise
