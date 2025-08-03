@@ -37,14 +37,24 @@ class SkinHealthBot:
             "Sunscreen", "Retinol", "Niacinamide", "Salicylic Acid", "Other"
         ]
         
+        # Updated predefined options for triggers and symptoms
         self.triggers = [
-            "Sun Exposure", "Sweat", "Stress", "Lack of Sleep", "New Product", 
-            "Diet Change", "Weather Change", "Hormonal", "Other"
+            "Sun exposure",
+            "Stress",
+            "Hot weather",
+            "Sweating",
+            "Spicy food",
+            "Alcohol",
+            "Other",
         ]
-        
+
         self.symptoms = [
-            "Redness", "Bumps", "Dryness", "Stinging", "Itching", 
-            "Burning", "Tightness", "Flaking", "Irritation"
+            "Redness",
+            "Bumps",
+            "Itching",
+            "Dryness",
+            "Burning",
+            "Other",
         ]
         
         self._setup_handlers()
@@ -94,6 +104,19 @@ class SkinHealthBot:
         await self.application.shutdown()
         await self.database.close()
         logger.info("Bot shut down successfully")
+
+    async def send_main_menu(self, update: Update):
+        """Send persistent main menu buttons."""
+        keyboard = [
+            [
+                InlineKeyboardButton("📝 Log", callback_data="menu_log"),
+                InlineKeyboardButton("📊 Progress", callback_data="menu_progress"),
+                InlineKeyboardButton("🧠 Summary", callback_data="menu_summary"),
+            ]
+        ]
+        reply_markup = InlineKeyboardMarkup(keyboard)
+        message = update.message or update.callback_query.message
+        await message.reply_text("Main Menu", reply_markup=reply_markup)
 
 
     async def process_update(self, update_data: dict):
@@ -162,6 +185,8 @@ Ready to start your skin health journey? Use /log to begin! ✨
                 welcome_message,
                 parse_mode=ParseMode.MARKDOWN
             )
+
+            await self.send_main_menu(update)
             
         except Exception as e:
             logger.error(f"Error in start command: {e}")
@@ -169,70 +194,82 @@ Ready to start your skin health journey? Use /log to begin! ✨
             await update.message.reply_text(
                 "Sorry, there was an error registering you. Please try again."
             )
+            await self.send_main_menu(update)
 
     async def log_command(self, update: Update, context):
         """Handle /log command - show logging options."""
         keyboard = [
             [
                 InlineKeyboardButton("📷 Add Photo", callback_data="log_photo"),
-                InlineKeyboardButton("🧴 Log Product", callback_data="log_product")
+                InlineKeyboardButton("🧴 Log Product", callback_data="log_product"),
             ],
             [
                 InlineKeyboardButton("⚡ Log Trigger", callback_data="log_trigger"),
-                InlineKeyboardButton("📊 Rate Symptoms", callback_data="log_symptom")
-            ]
+                InlineKeyboardButton("📊 Log Symptoms", callback_data="log_symptom"),
+            ],
         ]
         reply_markup = InlineKeyboardMarkup(keyboard)
-        
-        await update.message.reply_text(
+
+        message = update.message or update.callback_query.message
+        await message.reply_text(
             "What would you like to log today?",
-            reply_markup=reply_markup
+            reply_markup=reply_markup,
         )
 
     async def summary_command(self, update: Update, context):
         """Handle /summary command - generate AI summary."""
         user_id = update.effective_user.id
-        
+
         try:
             # Get user's recent logs
             recent_logs = await self.database.get_user_logs(user_id, days=7)
-            
+
+            message = update.message or update.callback_query.message
+
             if not recent_logs:
-                await update.message.reply_text(
+                await message.reply_text(
                     "You don't have any logs from the past week. Start logging to get insights!"
                 )
+                await self.send_main_menu(update)
                 return
-            
+
             # Generate AI summary
             summary = await self.openai_service.generate_summary(recent_logs)
-            
-            await update.message.reply_text(
+
+            await message.reply_text(
                 f"📈 *Your Weekly Skin Health Summary*\n\n{summary}",
-                parse_mode=ParseMode.MARKDOWN
+                parse_mode=ParseMode.MARKDOWN,
             )
-            
+            await self.send_main_menu(update)
+
         except Exception as e:
             logger.error(f"Error generating summary: {e}")
-            await update.message.reply_text(
+            message = update.message or update.callback_query.message
+            await message.reply_text(
                 "Sorry, I couldn't generate your summary right now. Please try again later."
             )
+            await self.send_main_menu(update)
 
     async def progress_command(self, update: Update, context):
         """Handle /progress command - show user statistics."""
         user_id = update.effective_user.id
         try:
             stats = await self.database.get_user_stats(user_id, days=30)
-            message = (
+            text = (
                 "📊 *30-day Overview*\n"
                 f"• Products logged: {stats.get('product_count', 0)}\n"
                 f"• Triggers logged: {stats.get('trigger_count', 0)}\n"
                 f"• Symptoms logged: {stats.get('symptom_count', 0)}\n"
                 f"• Photos uploaded: {stats.get('photo_count', 0)}"
             )
-            await update.message.reply_text(message, parse_mode=ParseMode.MARKDOWN)
+            message = update.message or update.callback_query.message
+            await message.reply_text(text, parse_mode=ParseMode.MARKDOWN)
+            await self.send_main_menu(update)
         except Exception as e:
             logger.error(f"Error getting progress: {e}")
-            await update.message.reply_text("Sorry, I couldn't load your progress right now.")
+            message = update.message or update.callback_query.message
+            await message.reply_text("Sorry, I couldn't load your progress right now.")
+            await self.send_main_menu(update)
 
     async def settings_command(self, update: Update, context):
         """Handle /settings command - show placeholder settings."""
@@ -285,42 +322,93 @@ Track consistently for best results! 🌟
         """Handle inline keyboard button callbacks."""
         query = update.callback_query
         await query.answer()
-        
+
         data = query.data
         user_id = update.effective_user.id
-        
+
+        if data.startswith("menu_"):
+            if data == "menu_log":
+                await self.log_command(update, context)
+            elif data == "menu_progress":
+                await self.progress_command(update, context)
+            elif data == "menu_summary":
+                await self.summary_command(update, context)
+            return
+
         if data == "log_photo":
             await query.edit_message_text(
                 "📷 Please upload a photo of your skin. Make sure it's well-lit and clear!"
             )
-            
+            return
         elif data == "log_product":
             await self._show_product_options(query)
-            
+            return
         elif data == "log_trigger":
-            await self._show_trigger_options(query)
-            
+            context.user_data["selected_triggers"] = []
+            await self._show_trigger_options(query, context)
+            return
         elif data == "log_symptom":
-            await self._show_symptom_options(query)
-            
-        elif data.startswith("product_"):
+            context.user_data["selected_symptoms"] = []
+            await self._show_symptom_options(query, context)
+            return
+
+        if data.startswith("product_"):
             product_name = data.replace("product_", "").replace("_", " ")
             await self._log_product(query, user_id, product_name)
-            
-        elif data.startswith("trigger_"):
-            trigger_name = data.replace("trigger_", "").replace("_", " ")
-            await self._log_trigger(query, user_id, trigger_name)
-            
-        elif data.startswith("symptom_"):
-            symptom_name = data.replace("symptom_", "").replace("_", " ")
-            # Store symptom choice and ask for severity
-            context.user_data['selected_symptom'] = symptom_name
-            await query.edit_message_text(
-                f"Rate the severity of {symptom_name} (1-5):\n"
-                "1 = Very mild\n2 = Mild\n3 = Moderate\n4 = Severe\n5 = Very severe\n\n"
-                "Please type a number from 1 to 5:"
-            )
+            await self.send_main_menu(update)
+            return
 
+        if data.startswith("trigger_toggle_"):
+            key = data.replace("trigger_toggle_", "")
+            trigger = next((t for t in self.triggers if t.lower().replace(' ', '_') == key), key.replace('_', ' '))
+            if trigger == "Other":
+                context.user_data["awaiting_custom_trigger"] = True
+                await query.edit_message_text("Please type your custom trigger:")
+            else:
+                selected = context.user_data.setdefault("selected_triggers", [])
+                if trigger in selected:
+                    selected.remove(trigger)
+                else:
+                    selected.append(trigger)
+                await self._show_trigger_options(query, context)
+            return
+        elif data == "trigger_submit":
+            selected = context.user_data.get("selected_triggers", [])
+            if selected:
+                for t in selected:
+                    await self.database.log_trigger(user_id, t)
+                context.user_data["selected_triggers"] = []
+                await query.edit_message_text(f"✅ Logged triggers: {', '.join(selected)}")
+                await self.send_main_menu(update)
+            else:
+                await query.answer("No triggers selected", show_alert=True)
+            return
+
+        if data.startswith("symptom_toggle_"):
+            key = data.replace("symptom_toggle_", "")
+            symptom = next((s for s in self.symptoms if s.lower().replace(' ', '_') == key), key.replace('_', ' '))
+            if symptom == "Other":
+                context.user_data["awaiting_custom_symptom"] = True
+                await query.edit_message_text("Please type your custom symptom:")
+            else:
+                selected = context.user_data.setdefault("selected_symptoms", [])
+                if symptom in selected:
+                    selected.remove(symptom)
+                else:
+                    selected.append(symptom)
+                await self._show_symptom_options(query, context)
+            return
+        elif data == "symptom_submit":
+            selected = context.user_data.get("selected_symptoms", [])
+            if selected:
+                for s in selected:
+                    await self.database.log_symptom(user_id, s)
+                context.user_data["selected_symptoms"] = []
+                await query.edit_message_text(f"✅ Logged symptoms: {', '.join(selected)}")
+                await self.send_main_menu(update)
+            else:
+                await query.answer("No symptoms selected", show_alert=True)
+            return
     async def _show_product_options(self, query):
         """Show product selection keyboard."""
         keyboard = []
@@ -343,48 +431,54 @@ Track consistently for best results! 🌟
             reply_markup=reply_markup
         )
 
-    async def _show_trigger_options(self, query):
-        """Show trigger selection keyboard."""
+    async def _show_trigger_options(self, query, context):
+        """Show trigger selection keyboard with multi-select."""
+        selected = context.user_data.get("selected_triggers", [])
         keyboard = []
-        for i in range(0, len(self.triggers), 2):
-            row = []
-            row.append(InlineKeyboardButton(
-                self.triggers[i], 
-                callback_data=f"trigger_{self.triggers[i].replace(' ', '_')}"
-            ))
-            if i + 1 < len(self.triggers):
-                row.append(InlineKeyboardButton(
-                    self.triggers[i + 1], 
-                    callback_data=f"trigger_{self.triggers[i + 1].replace(' ', '_')}"
-                ))
-            keyboard.append(row)
-        
-        reply_markup = InlineKeyboardMarkup(keyboard)
+        for trigger in self.triggers:
+            if trigger == "Other":
+                keyboard.append([
+                    InlineKeyboardButton("Other", callback_data="trigger_toggle_other")
+                ])
+            else:
+                prefix = "✅ " if trigger in selected else ""
+                keyboard.append([
+                    InlineKeyboardButton(
+                        f"{prefix}{trigger}",
+                        callback_data=f"trigger_toggle_{trigger.lower().replace(' ', '_')}",
+                    )
+                ])
+
+        keyboard.append([InlineKeyboardButton("✅ Submit", callback_data="trigger_submit")])
+
         await query.edit_message_text(
-            "⚡ What triggered your skin reaction?",
-            reply_markup=reply_markup
+            "⚡ Select triggers and tap Submit:",
+            reply_markup=InlineKeyboardMarkup(keyboard),
         )
 
-    async def _show_symptom_options(self, query):
-        """Show symptom selection keyboard."""
+    async def _show_symptom_options(self, query, context):
+        """Show symptom selection keyboard with multi-select."""
+        selected = context.user_data.get("selected_symptoms", [])
         keyboard = []
-        for i in range(0, len(self.symptoms), 2):
-            row = []
-            row.append(InlineKeyboardButton(
-                self.symptoms[i], 
-                callback_data=f"symptom_{self.symptoms[i].replace(' ', '_')}"
-            ))
-            if i + 1 < len(self.symptoms):
-                row.append(InlineKeyboardButton(
-                    self.symptoms[i + 1], 
-                    callback_data=f"symptom_{self.symptoms[i + 1].replace(' ', '_')}"
-                ))
-            keyboard.append(row)
-        
-        reply_markup = InlineKeyboardMarkup(keyboard)
+        for symptom in self.symptoms:
+            if symptom == "Other":
+                keyboard.append([
+                    InlineKeyboardButton("Other", callback_data="symptom_toggle_other")
+                ])
+            else:
+                prefix = "✅ " if symptom in selected else ""
+                keyboard.append([
+                    InlineKeyboardButton(
+                        f"{prefix}{symptom}",
+                        callback_data=f"symptom_toggle_{symptom.lower().replace(' ', '_')}",
+                    )
+                ])
+
+        keyboard.append([InlineKeyboardButton("✅ Submit", callback_data="symptom_submit")])
+
         await query.edit_message_text(
-            "📊 Which symptom would you like to rate?",
-            reply_markup=reply_markup
+            "📊 Select symptoms and tap Submit:",
+            reply_markup=InlineKeyboardMarkup(keyboard),
         )
 
     async def _log_product(self, query, user_id: int, product_name: str):
@@ -435,47 +529,30 @@ Track consistently for best results! 🌟
                 "Use /log to record more or /summary for insights!",
                 parse_mode=ParseMode.MARKDOWN
             )
-            
+            await self.send_main_menu(update)
+
         except Exception as e:
             logger.error(f"Error handling photo: {e}")
             await update.message.reply_text(
                 "Sorry, there was an error processing your photo. Please try again."
             )
+            await self.send_main_menu(update)
 
     async def handle_text(self, update: Update, context):
-        """Handle text messages (mainly for severity ratings)."""
+        """Handle plain text messages for custom trigger/symptom inputs."""
         user_id = update.effective_user.id
         text = update.message.text.strip()
-        
-        # Check if user is rating symptom severity
-        if 'selected_symptom' in context.user_data:
-            try:
-                severity = int(text)
-                if 1 <= severity <= 5:
-                    symptom_name = context.user_data['selected_symptom']
-                    
-                    # Log the symptom with severity
-                    await self.database.log_symptom(user_id, symptom_name, severity)
-                    
-                    # Clear the stored symptom
-                    del context.user_data['selected_symptom']
-                    
-                    severity_desc = ["", "Very mild", "Mild", "Moderate", "Severe", "Very severe"]
-                    
-                    await update.message.reply_text(
-                        f"✅ Logged symptom: {symptom_name} ({severity_desc[severity]})\n\n"
-                        "Use /log to record more or /summary for insights!"
-                    )
-                else:
-                    await update.message.reply_text(
-                        "Please enter a number between 1 and 5 for severity rating."
-                    )
-            except ValueError:
-                await update.message.reply_text(
-                    "Please enter a valid number between 1 and 5."
-                )
+
+        if context.user_data.get("awaiting_custom_trigger"):
+            await self.database.log_trigger(user_id, text)
+            del context.user_data["awaiting_custom_trigger"]
+            await update.message.reply_text(f"✅ Logged trigger: {text}")
+            await self.send_main_menu(update)
+        elif context.user_data.get("awaiting_custom_symptom"):
+            await self.database.log_symptom(user_id, text)
+            del context.user_data["awaiting_custom_symptom"]
+            await update.message.reply_text(f"✅ Logged symptom: {text}")
+            await self.send_main_menu(update)
         else:
-            # Default response for other text messages
-            await update.message.reply_text(
-                "I'm not sure what you mean. Use /help to see available commands!"
-            )
+            await update.message.reply_text("I'm not sure what you mean. Use /help to see available commands!")
+
