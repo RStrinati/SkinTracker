@@ -50,3 +50,27 @@ async def test_get_user_logs(monkeypatch):
 @pytest.fixture
 def anyio_backend():
     return 'asyncio'
+
+
+@pytest.mark.anyio
+async def test_create_user_with_defaults(monkeypatch):
+    supabase_client = MagicMock()
+    table = MagicMock()
+    supabase_client.table.return_value = table
+    table.select.return_value = table
+    table.eq.return_value = table
+    table.insert.return_value = table
+    # First execute call for select (no existing user), second for insert
+    table.execute.side_effect = [
+        MagicMock(data=[]),
+        MagicMock(data=[{"id": 1, "timezone": "UTC", "reminder_time": "09:00"}]),
+    ]
+
+    monkeypatch.setenv("NEXT_PUBLIC_SUPABASE_URL", "url")
+    monkeypatch.setenv("NEXT_PUBLIC_SUPABASE_ANON_KEY", "key")
+    monkeypatch.setattr("database.create_client", lambda url, key: supabase_client)
+
+    db = Database()
+    result = await db.create_user(telegram_id=1, username="test")
+    assert result["timezone"] == "UTC"
+    assert result["reminder_time"] == "09:00"
