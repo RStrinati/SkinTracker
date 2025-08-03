@@ -32,22 +32,20 @@ class SkinHealthBot:
         self.database = Database()
         self.openai_service = OpenAIService()
         self.scheduler: Optional[ReminderScheduler] = None
-        
-        # Predefined options for logging
-        self.products = [
-            "Cicaplast", "Azelaic Acid", "Enstilar", "Cerave Moisturizer", 
-            "Sunscreen", "Retinol", "Niacinamide", "Salicylic Acid", "Other"
+
+        # Default fallback options if database tables are empty
+        self.default_products = [
+            "Cicaplast", "Azelaic Acid", "Enstilar", "Cerave Moisturizer",
+            "Sunscreen", "Retinol", "Niacinamide", "Salicylic Acid"
         ]
-        
-        # Updated predefined options for triggers and symptoms
-        self.triggers = [
+
+        self.default_triggers = [
             "Sun exposure",
             "Stress",
             "Hot weather",
             "Sweating",
             "Spicy food",
             "Alcohol",
-            "Other",
         ]
 
         self.symptoms = [
@@ -364,13 +362,18 @@ Track consistently for best results! 🌟
 
         if data.startswith("product_"):
             product_name = data.replace("product_", "").replace("_", " ")
-            await self._log_product(query, user_id, product_name)
-            await self.send_main_menu(update)
+            if product_name == "Other":
+                context.user_data["awaiting_custom_product"] = True
+                await query.edit_message_text("Please type your custom product:")
+            else:
+                await self._log_product(query, user_id, product_name)
+                await self.send_main_menu(update)
             return
 
         if data.startswith("trigger_toggle_"):
             key = data.replace("trigger_toggle_", "")
-            trigger = next((t for t in self.triggers if t.lower().replace(' ', '_') == key), key.replace('_', ' '))
+            available = context.user_data.get("available_triggers", [])
+            trigger = next((t for t in available if t.lower().replace(' ', '_') == key), key.replace('_', ' '))
             if trigger == "Other":
                 context.user_data["awaiting_custom_trigger"] = True
                 await query.edit_message_text("Please type your custom trigger:")
@@ -411,11 +414,9 @@ Track consistently for best results! 🌟
         elif data == "symptom_submit":
             selected = context.user_data.get("selected_symptoms", [])
             if selected:
-                for s in selected:
-                    await self.database.log_symptom(user_id, s)
-                context.user_data["selected_symptoms"] = []
-                await query.edit_message_text(f"✅ Logged symptoms: {', '.join(selected)}")
-                await self.send_main_menu(update)
+                context.user_data['symptoms_pending_severity'] = selected
+                context.user_data['awaiting_severity'] = True
+                await query.edit_message_text("Please rate severity (1-5):")
             else:
                 await query.answer("No symptoms selected", show_alert=True)
             return
@@ -437,20 +438,29 @@ Track consistently for best results! 🌟
 
     async def _show_product_options(self, query):
         """Show product selection keyboard."""
+        user_id = query.from_user.id
+        products = await self.database.get_products(user_id)
+        names = [p['name'] for p in products] if products else self.default_products
+        if "Other" not in names:
+            names.append("Other")
         keyboard = []
-        for i in range(0, len(self.products), 2):
+        for i in range(0, len(names), 2):
             row = []
-            row.append(InlineKeyboardButton(
-                self.products[i], 
-                callback_data=f"product_{self.products[i].replace(' ', '_')}"
-            ))
-            if i + 1 < len(self.products):
-                row.append(InlineKeyboardButton(
-                    self.products[i + 1], 
-                    callback_data=f"product_{self.products[i + 1].replace(' ', '_')}"
-                ))
+            row.append(
+                InlineKeyboardButton(
+                    names[i],
+                    callback_data=f"product_{names[i].replace(' ', '_')}"
+                )
+            )
+            if i + 1 < len(names):
+                row.append(
+                    InlineKeyboardButton(
+                        names[i + 1],
+                        callback_data=f"product_{names[i + 1].replace(' ', '_')}"
+                    )
+                )
             keyboard.append(row)
-        
+
         reply_markup = InlineKeyboardMarkup(keyboard)
         await query.edit_message_text(
             "🧴 Which product did you use?",
@@ -459,9 +469,15 @@ Track consistently for best results! 🌟
 
     async def _show_trigger_options(self, query, context):
         """Show trigger selection keyboard with multi-select."""
+        user_id = query.from_user.id
+        triggers = await self.database.get_triggers(user_id)
+        names = [t['name'] for t in triggers] if triggers else self.default_triggers
+        if "Other" not in names:
+            names.append("Other")
+        context.user_data['available_triggers'] = names
         selected = context.user_data.get("selected_triggers", [])
         keyboard = []
-        for trigger in self.triggers:
+        for trigger in names:
             if trigger == "Other":
                 keyboard.append([
                     InlineKeyboardButton("Other", callback_data="trigger_toggle_other")
@@ -568,17 +584,40 @@ Track consistently for best results! 🌟
         """Handle plain text messages for custom trigger/symptom inputs."""
         user_id = update.effective_user.id
         text = update.message.text.strip()
-
-        if context.user_data.get("awaiting_custom_trigger"):
+        if context.user_data.get("awaiting_severity"):
+            try:
+                severity = int(text)
+                if severity < 1 or severity > 5:
+                    raise ValueError
+                symptoms = context.user_data.get('symptoms_pending_severity', [])
+                for s in symptoms:
+                    await self.database.log_symptom(user_id, s, severity)
+                context.user_data.pop('awaiting_severity', None)
+                context.user_data.pop('symptoms_pending_severity', None)
+                context.user_data['selected_symptoms'] = []
+                await update.message.reply_text(
+                    f"✅ Logged symptoms: {', '.join(symptoms)} (severity {severity})"
+                )
+                await self.send_main_menu(update)
+            except ValueError:
+                await update.message.reply_text("Please enter a number between 1 and 5 for severity.")
+        elif context.user_data.get("awaiting_custom_product"):
+            await self.database.add_product(user_id, text)
+            await self.database.log_product(user_id, text)
+            del context.user_data["awaiting_custom_product"]
+            await update.message.reply_text(f"✅ Logged product: {text}")
+            await self.send_main_menu(update)
+        elif context.user_data.get("awaiting_custom_trigger"):
+            await self.database.add_trigger(user_id, text)
             await self.database.log_trigger(user_id, text)
             del context.user_data["awaiting_custom_trigger"]
             await update.message.reply_text(f"✅ Logged trigger: {text}")
             await self.send_main_menu(update)
         elif context.user_data.get("awaiting_custom_symptom"):
-            await self.database.log_symptom(user_id, text)
+            context.user_data['symptoms_pending_severity'] = [text]
+            context.user_data['awaiting_severity'] = True
             del context.user_data["awaiting_custom_symptom"]
-            await update.message.reply_text(f"✅ Logged symptom: {text}")
-            await self.send_main_menu(update)
+            await update.message.reply_text("Please rate severity (1-5):")
         else:
             await update.message.reply_text("I'm not sure what you mean. Use /help to see available commands!")
 
