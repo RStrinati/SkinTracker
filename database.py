@@ -45,15 +45,17 @@ class Database:
         username: str = None,
         first_name: str = None,
         last_name: str = None,
-        timezone: str = "UTC",
-        reminder_time: str = "09:00",
+        timezone: Optional[str] = None,
+        reminder_time: Optional[str] = None,
     ) -> Dict[str, Any]:
-        """Create or update user in database.
+        """Create or update a user in the database.
 
-        Stores additional user preferences like ``timezone`` and
-        ``reminder_time`` which are required for the daily reminder
-        system.  Both fields default to sensible values so existing code
-        that only supplies the ``telegram_id`` continues to work.
+        The ``users`` table now contains ``timezone`` and
+        ``reminder_time`` columns which are used by the reminder
+        scheduler.  When creating a new user we fall back to ``UTC`` and
+        ``09:00`` respectively.  When updating an existing user these
+        fields are only modified if explicitly provided to avoid
+        overwriting existing preferences.
         """
         try:
             # Check if user already exists
@@ -68,9 +70,9 @@ class Database:
                     'updated_at': datetime.utcnow().isoformat()
                 }
                 # Update reminder settings if provided
-                if timezone:
+                if timezone is not None:
                     user_data['timezone'] = timezone
-                if reminder_time:
+                if reminder_time is not None:
                     user_data['reminder_time'] = reminder_time
 
                 response = self.client.table('users').update(user_data).eq('telegram_id', telegram_id).execute()
@@ -83,8 +85,8 @@ class Database:
                     'username': username,
                     'first_name': first_name,
                     'last_name': last_name,
-                    'timezone': timezone,
-                    'reminder_time': reminder_time,
+                    'timezone': timezone or 'UTC',
+                    'reminder_time': reminder_time or '09:00',
                     'created_at': datetime.utcnow().isoformat(),
                     'updated_at': datetime.utcnow().isoformat()
                 }
@@ -115,7 +117,7 @@ class Database:
                 'reminder_time': reminder_time,
                 'updated_at': datetime.utcnow().isoformat()
             }
-            if timezone:
+            if timezone is not None:
                 update_data['timezone'] = timezone
 
             response = (
