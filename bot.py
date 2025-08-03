@@ -143,7 +143,7 @@ class SkinHealthBot:
 
 Hi {user.first_name}! I'm here to help you track your skin health journey.
 
-*What I can help you with:*
+*What I can help you with?:*
 📷 Upload skin photos for progress tracking
 🧴 Log skincare products you're using
 ⚡ Track triggers that affect your skin
