@@ -1,9 +1,13 @@
 from fastapi import FastAPI, Request, HTTPException
 from fastapi.responses import JSONResponse
 from pydantic import BaseModel
-from typing import List
+from typing import List, Optional, Dict
 import os
 import asyncio
+import hashlib
+import hmac
+import secrets
+import time
 from dotenv import load_dotenv
 import logging
 from bot import SkinHealthBot
@@ -24,6 +28,9 @@ app = FastAPI(title="Skin Health Tracker Bot", version="1.0.0")
 
 # Initialize bot
 bot = SkinHealthBot()
+
+# Simple in-memory session storage mapping tokens to Telegram IDs
+sessions: Dict[str, int] = {}
 
 @app.on_event("startup")
 async def startup_event():
@@ -50,6 +57,56 @@ async def health_check():
         "service": "skin-health-tracker-bot",
         "version": "1.0.0"
     }
+
+
+class TelegramAuthRequest(BaseModel):
+    """Schema for Telegram login authentication."""
+    id: int
+    auth_date: int
+    hash: str
+    first_name: Optional[str] = None
+    last_name: Optional[str] = None
+    username: Optional[str] = None
+    photo_url: Optional[str] = None
+
+
+@app.post("/auth/telegram")
+async def telegram_auth(data: TelegramAuthRequest):
+    """Authenticate a user via Telegram login data."""
+    try:
+        bot_token = os.getenv("TELEGRAM_BOT_TOKEN")
+        if not bot_token:
+            logger.error("TELEGRAM_BOT_TOKEN is not set")
+            raise HTTPException(status_code=500, detail="Bot token not configured")
+
+        auth_dict = data.dict(exclude_none=True)
+        received_hash = auth_dict.pop("hash")
+
+        # Build data-check-string
+        data_check_string = "\n".join(
+            f"{k}={auth_dict[k]}" for k in sorted(auth_dict.keys())
+        )
+
+        secret_key = hashlib.sha256(bot_token.encode()).digest()
+        calculated_hash = hmac.new(
+            secret_key, data_check_string.encode(), hashlib.sha256
+        ).hexdigest()
+
+        if calculated_hash != received_hash:
+            raise HTTPException(status_code=403, detail="Invalid Telegram login data")
+
+        if time.time() - data.auth_date > 86400:
+            raise HTTPException(status_code=403, detail="Authentication data is too old")
+
+        session_token = secrets.token_urlsafe(32)
+        sessions[session_token] = data.id
+        return {"token": session_token}
+
+    except HTTPException:
+        raise
+    except Exception as e:
+        logger.error(f"Error authenticating Telegram user: {e}")
+        raise HTTPException(status_code=500, detail="Failed to authenticate")
 
 @app.post("/webhook")
 async def webhook(request: Request):
