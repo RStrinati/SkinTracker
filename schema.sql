@@ -11,8 +11,8 @@ CREATE TABLE IF NOT EXISTS users (
     username TEXT,
     first_name TEXT,
     last_name TEXT,
-    timezone TEXT DEFAULT 'UTC',
-    reminder_time TEXT DEFAULT '09:00',
+    timezone TEXT NOT NULL DEFAULT 'UTC',
+    reminder_time TEXT NOT NULL DEFAULT '09:00',
     created_at TIMESTAMP WITH TIME ZONE DEFAULT NOW(),
     updated_at TIMESTAMP WITH TIME ZONE DEFAULT NOW()
 );
