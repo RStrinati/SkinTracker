@@ -17,13 +17,38 @@ CREATE TABLE IF NOT EXISTS users (
     updated_at TIMESTAMP WITH TIME ZONE DEFAULT NOW()
 );
 
+-- Products table to store reusable product definitions
+CREATE TABLE IF NOT EXISTS products (
+    id UUID PRIMARY KEY DEFAULT uuid_generate_v4(),
+    user_id UUID REFERENCES users(id) ON DELETE CASCADE,
+    name TEXT NOT NULL,
+    type TEXT,
+    is_global BOOLEAN DEFAULT FALSE,
+    created_at TIMESTAMP WITH TIME ZONE DEFAULT NOW(),
+    updated_at TIMESTAMP WITH TIME ZONE DEFAULT NOW()
+);
+
+-- Triggers table to store reusable trigger definitions
+CREATE TABLE IF NOT EXISTS triggers (
+    id UUID PRIMARY KEY DEFAULT uuid_generate_v4(),
+    user_id UUID REFERENCES users(id) ON DELETE CASCADE,
+    name TEXT NOT NULL,
+    emoji TEXT,
+    is_global BOOLEAN DEFAULT FALSE,
+    created_at TIMESTAMP WITH TIME ZONE DEFAULT NOW(),
+    updated_at TIMESTAMP WITH TIME ZONE DEFAULT NOW()
+);
+
 -- Product logs table to track skincare products used
 CREATE TABLE IF NOT EXISTS product_logs (
     id UUID PRIMARY KEY DEFAULT uuid_generate_v4(),
     user_id UUID NOT NULL REFERENCES users(id) ON DELETE CASCADE,
     product_name TEXT NOT NULL,
+    effect TEXT,
+    notes TEXT,
     logged_at TIMESTAMP WITH TIME ZONE DEFAULT NOW(),
-    created_at TIMESTAMP WITH TIME ZONE DEFAULT NOW()
+    created_at TIMESTAMP WITH TIME ZONE DEFAULT NOW(),
+    updated_at TIMESTAMP WITH TIME ZONE DEFAULT NOW()
 );
 
 -- Trigger logs table to track skin irritation triggers
@@ -31,8 +56,10 @@ CREATE TABLE IF NOT EXISTS trigger_logs (
     id UUID PRIMARY KEY DEFAULT uuid_generate_v4(),
     user_id UUID NOT NULL REFERENCES users(id) ON DELETE CASCADE,
     trigger_name TEXT NOT NULL,
+    notes TEXT,
     logged_at TIMESTAMP WITH TIME ZONE DEFAULT NOW(),
-    created_at TIMESTAMP WITH TIME ZONE DEFAULT NOW()
+    created_at TIMESTAMP WITH TIME ZONE DEFAULT NOW(),
+    updated_at TIMESTAMP WITH TIME ZONE DEFAULT NOW()
 );
 
 -- Symptom logs table to track skin symptoms with severity ratings
@@ -43,7 +70,8 @@ CREATE TABLE IF NOT EXISTS symptom_logs (
     severity INTEGER NOT NULL CHECK (severity >= 1 AND severity <= 5),
     notes TEXT,
     logged_at TIMESTAMP WITH TIME ZONE DEFAULT NOW(),
-    created_at TIMESTAMP WITH TIME ZONE DEFAULT NOW()
+    created_at TIMESTAMP WITH TIME ZONE DEFAULT NOW(),
+    updated_at TIMESTAMP WITH TIME ZONE DEFAULT NOW()
 );
 
 -- Photo logs table to store skin photos and AI analysis
@@ -53,13 +81,16 @@ CREATE TABLE IF NOT EXISTS photo_logs (
     photo_url TEXT NOT NULL,
     ai_analysis TEXT,
     logged_at TIMESTAMP WITH TIME ZONE DEFAULT NOW(),
-    created_at TIMESTAMP WITH TIME ZONE DEFAULT NOW()
+    created_at TIMESTAMP WITH TIME ZONE DEFAULT NOW(),
+    updated_at TIMESTAMP WITH TIME ZONE DEFAULT NOW()
 );
 
 -- Create indexes for better query performance
 CREATE INDEX IF NOT EXISTS idx_users_telegram_id ON users(telegram_id);
+CREATE INDEX IF NOT EXISTS idx_products_user_id ON products(user_id);
 CREATE INDEX IF NOT EXISTS idx_product_logs_user_id ON product_logs(user_id);
 CREATE INDEX IF NOT EXISTS idx_product_logs_logged_at ON product_logs(logged_at);
+CREATE INDEX IF NOT EXISTS idx_triggers_user_id ON triggers(user_id);
 CREATE INDEX IF NOT EXISTS idx_trigger_logs_user_id ON trigger_logs(user_id);
 CREATE INDEX IF NOT EXISTS idx_trigger_logs_logged_at ON trigger_logs(logged_at);
 CREATE INDEX IF NOT EXISTS idx_symptom_logs_user_id ON symptom_logs(user_id);
@@ -69,7 +100,9 @@ CREATE INDEX IF NOT EXISTS idx_photo_logs_logged_at ON photo_logs(logged_at);
 
 -- Enable Row Level Security (RLS) for all tables
 ALTER TABLE users ENABLE ROW LEVEL SECURITY;
+ALTER TABLE products ENABLE ROW LEVEL SECURITY;
 ALTER TABLE product_logs ENABLE ROW LEVEL SECURITY;
+ALTER TABLE triggers ENABLE ROW LEVEL SECURITY;
 ALTER TABLE trigger_logs ENABLE ROW LEVEL SECURITY;
 ALTER TABLE symptom_logs ENABLE ROW LEVEL SECURITY;
 ALTER TABLE photo_logs ENABLE ROW LEVEL SECURITY;
@@ -84,6 +117,48 @@ CREATE POLICY "Users can update own data" ON users
 
 CREATE POLICY "Users can insert own data" ON users
     FOR INSERT WITH CHECK (telegram_id = current_setting('request.telegram_id')::bigint);
+
+-- RLS Policies for products table
+CREATE POLICY "Users can view own products" ON products
+    FOR SELECT USING (user_id IN (
+        SELECT id FROM users WHERE telegram_id = current_setting('request.telegram_id')::bigint
+    ) OR is_global = true);
+
+CREATE POLICY "Users can insert own products" ON products
+    FOR INSERT WITH CHECK (user_id IN (
+        SELECT id FROM users WHERE telegram_id = current_setting('request.telegram_id')::bigint
+    ));
+
+CREATE POLICY "Users can update own products" ON products
+    FOR UPDATE USING (user_id IN (
+        SELECT id FROM users WHERE telegram_id = current_setting('request.telegram_id')::bigint
+    ));
+
+CREATE POLICY "Users can delete own products" ON products
+    FOR DELETE USING (user_id IN (
+        SELECT id FROM users WHERE telegram_id = current_setting('request.telegram_id')::bigint
+    ));
+
+-- RLS Policies for triggers table
+CREATE POLICY "Users can view own triggers" ON triggers
+    FOR SELECT USING (user_id IN (
+        SELECT id FROM users WHERE telegram_id = current_setting('request.telegram_id')::bigint
+    ) OR is_global = true);
+
+CREATE POLICY "Users can insert own triggers" ON triggers
+    FOR INSERT WITH CHECK (user_id IN (
+        SELECT id FROM users WHERE telegram_id = current_setting('request.telegram_id')::bigint
+    ));
+
+CREATE POLICY "Users can update own triggers" ON triggers
+    FOR UPDATE USING (user_id IN (
+        SELECT id FROM users WHERE telegram_id = current_setting('request.telegram_id')::bigint
+    ));
+
+CREATE POLICY "Users can delete own triggers" ON triggers
+    FOR DELETE USING (user_id IN (
+        SELECT id FROM users WHERE telegram_id = current_setting('request.telegram_id')::bigint
+    ));
 
 -- RLS Policies for product_logs table
 CREATE POLICY "Users can view own product logs" ON product_logs
@@ -217,6 +292,24 @@ $$ language 'plpgsql';
 CREATE TRIGGER update_users_updated_at BEFORE UPDATE ON users
     FOR EACH ROW EXECUTE FUNCTION update_updated_at_column();
 
+CREATE TRIGGER update_products_updated_at BEFORE UPDATE ON products
+    FOR EACH ROW EXECUTE FUNCTION update_updated_at_column();
+
+CREATE TRIGGER update_triggers_updated_at BEFORE UPDATE ON triggers
+    FOR EACH ROW EXECUTE FUNCTION update_updated_at_column();
+
+CREATE TRIGGER update_product_logs_updated_at BEFORE UPDATE ON product_logs
+    FOR EACH ROW EXECUTE FUNCTION update_updated_at_column();
+
+CREATE TRIGGER update_trigger_logs_updated_at BEFORE UPDATE ON trigger_logs
+    FOR EACH ROW EXECUTE FUNCTION update_updated_at_column();
+
+CREATE TRIGGER update_symptom_logs_updated_at BEFORE UPDATE ON symptom_logs
+    FOR EACH ROW EXECUTE FUNCTION update_updated_at_column();
+
+CREATE TRIGGER update_photo_logs_updated_at BEFORE UPDATE ON photo_logs
+    FOR EACH ROW EXECUTE FUNCTION update_updated_at_column();
+
 -- Sample data for testing (optional - remove in production)
 -- INSERT INTO users (telegram_id, username, first_name, last_name)
 -- VALUES (123456789, 'testuser', 'Test', 'User')
@@ -224,7 +317,9 @@ CREATE TRIGGER update_users_updated_at BEFORE UPDATE ON users
 
 -- Comments for documentation
 COMMENT ON TABLE users IS 'Stores Telegram user information and profile data';
-COMMENT ON TABLE product_logs IS 'Tracks skincare products used by users with timestamps';
+COMMENT ON TABLE products IS 'Reusable product definitions';
+COMMENT ON TABLE triggers IS 'Reusable trigger definitions';
+COMMENT ON TABLE product_logs IS 'Tracks skincare products used by users with timestamps and effects';
 COMMENT ON TABLE trigger_logs IS 'Records skin irritation triggers experienced by users';
 COMMENT ON TABLE symptom_logs IS 'Stores symptom severity ratings on a 1-5 scale';
 COMMENT ON TABLE photo_logs IS 'Contains skin photos with AI analysis and metadata';
@@ -232,3 +327,4 @@ COMMENT ON TABLE photo_logs IS 'Contains skin photos with AI analysis and metada
 COMMENT ON COLUMN symptom_logs.severity IS 'Severity rating from 1 (very mild) to 5 (very severe)';
 COMMENT ON COLUMN photo_logs.ai_analysis IS 'AI-generated analysis of the skin photo';
 COMMENT ON COLUMN photo_logs.photo_url IS 'Supabase storage URL for the uploaded photo';
+
