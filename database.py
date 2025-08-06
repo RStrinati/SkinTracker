@@ -17,12 +17,40 @@ logger = logging.getLogger(__name__)
 class Database:
     def __init__(self):
         self.supabase_url = os.getenv('NEXT_PUBLIC_SUPABASE_URL')
-        self.supabase_key = os.getenv('NEXT_PUBLIC_SUPABASE_ANON_KEY')
-        
+        # Prefer service role key for storage operations; fall back to anon key
+        self.supabase_key = (
+            os.getenv('SUPABASE_SERVICE_ROLE_KEY')
+            or os.getenv('NEXT_PUBLIC_SUPABASE_ANON_KEY')
+        )
+
         if not self.supabase_url or not self.supabase_key:
             raise ValueError("Supabase URL and key are required")
-        
+
         self.client: Client = create_client(self.supabase_url, self.supabase_key)
+        self._ensure_photo_bucket()
+
+    def _ensure_photo_bucket(self) -> None:
+        """Ensure that the photo storage bucket exists."""
+        bucket_name = 'skin-photos'
+        try:
+            self.client.storage.get_bucket(bucket_name)
+        except Exception:
+            # Create the bucket with the same constraints as schema.sql
+            try:
+                self.client.storage.create_bucket(
+                    bucket_name,
+                    options={
+                        "public": False,
+                        "file_size_limit": 10 * 1024 * 1024,  # 10 MB
+                        "allowed_mime_types": [
+                            "image/jpeg",
+                            "image/png",
+                            "image/webp",
+                        ],
+                    },
+                )
+            except Exception as bucket_error:
+                logger.error(f"Error ensuring storage bucket: {bucket_error}")
 
     async def initialize(self):
         """Initialize database connection and ensure tables exist."""
