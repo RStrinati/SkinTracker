@@ -17,24 +17,33 @@ logger = logging.getLogger(__name__)
 class Database:
     def __init__(self):
         self.supabase_url = os.getenv('NEXT_PUBLIC_SUPABASE_URL')
-        # Prefer service role key for storage operations; fall back to anon key
-        self.supabase_key = (
-            os.getenv('SUPABASE_SERVICE_ROLE_KEY')
-            or os.getenv('NEXT_PUBLIC_SUPABASE_ANON_KEY')
-        )
+        self.service_role_key = os.getenv('SUPABASE_SERVICE_ROLE_KEY')
+        self.anon_key = os.getenv('NEXT_PUBLIC_SUPABASE_ANON_KEY')
 
-        if not self.supabase_url or not self.supabase_key:
-            raise ValueError("Supabase URL and key are required")
+        if not self.supabase_url:
+            raise ValueError("NEXT_PUBLIC_SUPABASE_URL is required")
+        if not self.anon_key:
+            raise ValueError("NEXT_PUBLIC_SUPABASE_ANON_KEY is required")
 
+        # Use service role key if available, otherwise anon key
+        self.supabase_key = self.service_role_key or self.anon_key
         self.client: Client = create_client(self.supabase_url, self.supabase_key)
-        self._ensure_photo_bucket()
+        
+        # Only try to ensure bucket if we have service role key
+        if self.service_role_key:
+            self._ensure_photo_bucket()
+        else:
+            logger.warning("No service role key found. Storage bucket creation will be skipped. Please create 'skin-photos' bucket manually in Supabase Dashboard.")
 
     def _ensure_photo_bucket(self) -> None:
         """Ensure that the photo storage bucket exists."""
         bucket_name = 'skin-photos'
         try:
+            # Try to get the bucket to see if it exists
             self.client.storage.get_bucket(bucket_name)
-        except Exception:
+            logger.info(f"Storage bucket '{bucket_name}' already exists")
+        except Exception as get_error:
+            logger.info(f"Bucket '{bucket_name}' not found, attempting to create it...")
             # Create the bucket with the same constraints as schema.sql
             try:
                 self.client.storage.create_bucket(
@@ -49,8 +58,11 @@ class Database:
                         ],
                     },
                 )
+                logger.info(f"Successfully created storage bucket '{bucket_name}'")
             except Exception as bucket_error:
-                logger.error(f"Error ensuring storage bucket: {bucket_error}")
+                logger.error(f"Failed to create storage bucket '{bucket_name}': {bucket_error}")
+                logger.error("Please create the 'skin-photos' bucket manually in Supabase Dashboard → Storage")
+                raise
 
     async def initialize(self):
         """Initialize database connection and ensure tables exist."""
