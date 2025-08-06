@@ -246,6 +246,40 @@ class Database:
             logger.error(f"Error adding trigger for user {user_id}: {e}")
             raise
 
+    async def get_conditions(self, user_id: int) -> List[Dict[str, Any]]:
+        """Retrieve conditions for a user."""
+        try:
+            user = await self.get_user_by_telegram_id(user_id)
+            if not user:
+                return []
+            response = (
+                self.client.table('conditions')
+                .select('*')
+                .eq('user_id', user['id'])
+                .execute()
+            )
+            return response.data
+        except Exception as e:
+            logger.error(f"Error retrieving conditions for user {user_id}: {e}")
+            return []
+
+    async def add_condition(self, user_id: int, name: str, condition_type: str) -> Dict[str, Any]:
+        """Add a condition for a user."""
+        try:
+            user = await self.get_user_by_telegram_id(user_id)
+            if not user:
+                raise ValueError(f"User {user_id} not found")
+            data = {
+                'user_id': user['id'],
+                'name': name,
+                'condition_type': condition_type,
+            }
+            response = self.client.table('conditions').insert(data).execute()
+            return response.data[0]
+        except Exception as e:
+            logger.error(f"Error adding condition for user {user_id}: {e}")
+            raise
+
     async def log_product(
         self, user_id: int, product_name: str, notes: Optional[str] = None, effect: Optional[str] = None
     ) -> Dict[str, Any]:
