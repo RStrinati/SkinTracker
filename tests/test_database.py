@@ -8,6 +8,8 @@ from database import Database
 async def test_get_user_logs(monkeypatch):
     # Prepare fake supabase client
     supabase_client = MagicMock()
+    supabase_client.storage = MagicMock()
+    supabase_client.storage.get_bucket.return_value = MagicMock()
 
     def make_table_mock(return_data):
         table = MagicMock()
@@ -55,6 +57,8 @@ def anyio_backend():
 @pytest.mark.anyio
 async def test_create_user_with_defaults(monkeypatch):
     supabase_client = MagicMock()
+    supabase_client.storage = MagicMock()
+    supabase_client.storage.get_bucket.return_value = MagicMock()
     table = MagicMock()
     supabase_client.table.return_value = table
     table.select.return_value = table

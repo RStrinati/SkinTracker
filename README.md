@@ -30,6 +30,7 @@ available via the `/env-check` page):
 
 - **NEXT_PUBLIC_SUPABASE_URL**: Your Supabase project URL
 - **NEXT_PUBLIC_SUPABASE_ANON_KEY**: Supabase anonymous key
+- **SUPABASE_SERVICE_ROLE_KEY**: Supabase service role key for server-side uploads
 - **TELEGRAM_BOT_TOKEN**: Bot token from @BotFather
 - **OPENAI_API_KEY**: OpenAI API key for GPT-4 analysis
 - **BASE_URL**: URL where your bot is hosted
@@ -42,6 +43,7 @@ available via the `/env-check` page):
    # Copy contents of schema.sql into Supabase SQL Editor
    ```
 3. This creates all necessary tables and Row Level Security policies
+4. The application will automatically create the private `skin-photos` bucket and an `uploads` folder for user photos
 
 ### 3. Install Dependencies
 
