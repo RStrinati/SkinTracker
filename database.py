@@ -286,53 +286,67 @@ class Database:
     async def save_photo(self, user_id: int, file: File) -> str:
         """Save photo to Supabase storage and return URL."""
         try:
-            # Generate unique filename
+            # Generate unique filename with user folder for privacy
             file_extension = file.file_path.split('.')[-1] if '.' in file.file_path else 'jpg'
-            filename = f"{user_id}_{uuid.uuid4().hex}.{file_extension}"
+            filename = f"uploads/{user_id}/{uuid.uuid4().hex}.{file_extension}"
             
             logger.info(f"[{user_id}] Starting photo download...")
             with tempfile.NamedTemporaryFile(delete=False, suffix=f'.{file_extension}') as temp_file:
                 try:
-                    # Timeout for download
-                    async with asyncio.timeout(20):
-                        await file.download_to_drive(temp_file.name)
+                    # Download file from Telegram
+                    await file.download_to_drive(temp_file.name)
                     logger.info(f"[{user_id}] Photo downloaded to temp: {temp_file.name}")
-                except asyncio.TimeoutError:
-                    logger.error(f"[{user_id}] Timeout while downloading photo")
+                except Exception as download_error:
+                    logger.error(f"[{user_id}] Error downloading photo: {download_error}")
                     raise
 
-            # Optional: Resize image to reduce file size (comment out if not needed)
+            # Optional: Resize image to reduce file size
             try:
                 img = Image.open(temp_file.name)
                 img.thumbnail((1024, 1024))  # Resize to 1024px max dimension
-                img.save(temp_file.name)
-                logger.info(f"[{user_id}] Image resized")
+                img.save(temp_file.name, optimize=True, quality=85)
+                logger.info(f"[{user_id}] Image resized and optimized")
             except Exception as resize_error:
                 logger.warning(f"[{user_id}] Could not resize image: {resize_error}")
 
-            logger.info(f"[{user_id}] Uploading to Supabase...")
-            with open(temp_file.name, 'rb') as f:
-                try:
+            logger.info(f"[{user_id}] Uploading to Supabase storage...")
+            try:
+                with open(temp_file.name, 'rb') as f:
                     response = self.client.storage.from_('skin-photos').upload(
                         file=f,
                         path=filename,
                         file_options={"content-type": f"image/{file_extension}"}
                     )
-                    logger.info(f"[{user_id}] Upload successful: {filename}")
-                except Exception as upload_error:
-                    logger.error(f"[{user_id}] Error uploading to Supabase: {upload_error}")
-                    raise
+                logger.info(f"[{user_id}] Upload successful: {filename}")
+                
+                # Check if upload was successful
+                if hasattr(response, 'error') and response.error:
+                    logger.error(f"[{user_id}] Supabase upload error: {response.error}")
+                    raise Exception(f"Upload failed: {response.error}")
+                    
+            except Exception as upload_error:
+                logger.error(f"[{user_id}] Error uploading to Supabase: {upload_error}")
+                raise
+            finally:
+                # Clean up temp file
+                try:
+                    os.unlink(temp_file.name)
+                except:
+                    pass
 
-            # Clean up temp file
-            os.unlink(temp_file.name)
-
-            # Get public URL
-            public_url = self.client.storage.from_('skin-photos').get_public_url(f"uploads/{filename}")
-            logger.info(f"[{user_id}] Public URL: {public_url}")
+            # Get public URL - use the same path as uploaded
+            public_url = self.client.storage.from_('skin-photos').get_public_url(filename)
+            logger.info(f"[{user_id}] Public URL generated: {public_url}")
             return public_url
 
         except Exception as e:
             logger.error(f"[{user_id}] Error saving photo: {e}")
+            # Clean up temp file if it exists
+            try:
+                if 'temp_file' in locals():
+                    os.unlink(temp_file.name)
+            except:
+                pass
             raise
 
 
