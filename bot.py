@@ -13,6 +13,7 @@ from telegram.constants import ParseMode
 from database import Database
 from openai_service import OpenAIService
 from reminder_scheduler import ReminderScheduler
+from skin_analysis import process_skin_image
 
 # Configure logging
 logging.basicConfig(
@@ -551,26 +552,39 @@ Track consistently for best results! 🌟
         """Handle photo uploads."""
         user_id = update.effective_user.id
         photo = update.message.photo[-1]  # Get highest resolution photo
-        
+
         try:
             # Get file info
             file = await context.bot.get_file(photo.file_id)
-            
-            # Upload to Supabase storage and save metadata
-            photo_url = await self.database.save_photo(user_id, file)
-            
-            # Generate AI analysis of the photo
-            analysis = await self.openai_service.analyze_photo(photo_url)
-            
-            # Save photo log with analysis
-            await self.database.log_photo(user_id, photo_url, analysis)
-            
-            await update.message.reply_text(
-                f"📷 Photo uploaded successfully!\n\n"
-                f"*AI Analysis:* {analysis}\n\n"
-                "Use /log to record more or /summary for insights!",
-                parse_mode=ParseMode.MARKDOWN
-            )
+
+            # Upload to Supabase storage and get local temp path and image id
+            photo_url, temp_path, image_id = await self.database.save_photo(user_id, file)
+
+            # Process the image for KPIs
+            try:
+                kpi = process_skin_image(temp_path, str(user_id), image_id, self.database.client)
+            finally:
+                try:
+                    os.unlink(temp_path)
+                except Exception:
+                    pass
+
+            # Save photo log without AI analysis
+            await self.database.log_photo(user_id, photo_url)
+
+            if kpi:
+                await update.message.reply_text(
+                    "📷 Photo uploaded successfully!\n\n"
+                    f"Face area: {kpi['face_area_px']} px\n"
+                    f"Blemish area: {kpi['blemish_area_px']} px\n"
+                    f"Percent blemished: {kpi['percent_blemished']:.2f}%\n\n"
+                    "Use /log to record more or /summary for insights!",
+                )
+            else:
+                await update.message.reply_text(
+                    "⚠️ No face detected in the photo. Please try again with a clearer picture."
+                )
+
             await self.send_main_menu(update)
 
         except Exception as e:
