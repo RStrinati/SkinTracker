@@ -598,7 +598,13 @@ Track consistently for best results! 🌟
 
             # Process the image for KPIs
             try:
-                kpi = process_skin_image(temp_path, str(user_id), image_id, self.database.client)
+                kpi = await asyncio.to_thread(
+                    process_skin_image,
+                    temp_path,
+                    str(user_id),
+                    image_id,
+                    self.database.client,
+                )
             finally:
                 try:
                     os.unlink(temp_path)
