@@ -279,14 +279,30 @@ Ready to start your skin health journey? Use /log to begin! ✨
             await message.reply_text("Sorry, I couldn't load your progress right now.")
             await self.send_main_menu(update)
 
-    async def settings_command(self, update: Update, context):
-        """Handle /settings command - show placeholder settings."""
+    async def _show_settings(self, update: Update, context):
+        """Display settings including existing conditions."""
+        user_id = update.effective_user.id
+        conditions = await self.database.get_conditions(user_id)
+        if conditions:
+            cond_lines = [
+                f"• {c['name']} ({c['condition_type']})" for c in conditions
+            ]
+            condition_text = "\n".join(cond_lines)
+        else:
+            condition_text = "No conditions set."
+
         keyboard = [[InlineKeyboardButton("➕ Add Condition", callback_data="settings_add_condition")]]
         reply_markup = InlineKeyboardMarkup(keyboard)
-        await update.message.reply_text(
-            "⚙️ Settings coming soon! Manage your conditions and preferences here.",
-            reply_markup=reply_markup
+        message = update.message or update.callback_query.message
+        await message.reply_text(
+            f"⚙️ *Settings*\n\n*Your Conditions:*\n{condition_text}",
+            parse_mode=ParseMode.MARKDOWN,
+            reply_markup=reply_markup,
         )
+
+    async def settings_command(self, update: Update, context):
+        """Handle /settings command."""
+        await self._show_settings(update, context)
 
     async def help_command(self, update: Update, context):
         """Handle /help command - show help information."""
@@ -358,6 +374,26 @@ Track consistently for best results! 🌟
         elif data == "log_symptom":
             context.user_data["selected_symptoms"] = []
             await self._show_symptom_options(query, context)
+            return
+
+        if data == "settings_add_condition":
+            context.user_data["awaiting_condition_name"] = True
+            await query.edit_message_text("Please enter the condition name:")
+            return
+
+        if data.startswith("condition_type_"):
+            condition_type = data.replace("condition_type_", "")
+            name = context.user_data.get("new_condition_name")
+            if name:
+                await self.database.add_condition(user_id, name, condition_type)
+                await query.edit_message_text(
+                    f"✅ Condition added: {name} ({condition_type})"
+                )
+                context.user_data.pop("new_condition_name", None)
+                context.user_data.pop("awaiting_condition_type", None)
+                await self._show_settings(update, context)
+            else:
+                await query.edit_message_text("Condition name missing.")
             return
 
         if data.startswith("product_"):
@@ -618,6 +654,24 @@ Track consistently for best results! 🌟
             context.user_data['awaiting_severity'] = True
             del context.user_data["awaiting_custom_symptom"]
             await update.message.reply_text("Please rate severity (1-5):")
+        elif context.user_data.get("awaiting_condition_name"):
+            context.user_data["new_condition_name"] = text
+            context.user_data.pop("awaiting_condition_name", None)
+            keyboard = [
+                [
+                    InlineKeyboardButton(
+                        "Existing", callback_data="condition_type_existing"
+                    ),
+                    InlineKeyboardButton(
+                        "Developed", callback_data="condition_type_developed"
+                    ),
+                ]
+            ]
+            await update.message.reply_text(
+                "Is this condition existing or developed?",
+                reply_markup=InlineKeyboardMarkup(keyboard),
+            )
+            context.user_data["awaiting_condition_type"] = True
         else:
             await update.message.reply_text("I'm not sure what you mean. Use /help to see available commands!")
 
