@@ -25,3 +25,13 @@ __pycache__/
 dist/
 build/
 *.egg-info/
+venv/
+__pycache__/
+*.pyc
+.env
+*.pyd
+*.dll
+*.so
+.DS_Store
+.vscode/
+.idea/
