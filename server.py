@@ -13,6 +13,10 @@ import logging
 from bot import SkinHealthBot
 from telegram import Update
 
+# Import API routers for the new processing pipeline
+from api.routers import images as images_router
+from api.routers import users as users_router
+
 # Load environment variables
 load_dotenv()
 
@@ -25,6 +29,9 @@ logger = logging.getLogger(__name__)
 
 # Initialize FastAPI app
 app = FastAPI(title="Skin Health Tracker Bot", version="1.0.0")
+# Mount prototype API routes
+app.include_router(images_router.router)
+app.include_router(users_router.router)
 
 # Initialize bot
 bot = SkinHealthBot()
