@@ -32,10 +32,10 @@ INSERT INTO triggers (name, is_global) VALUES
 ON CONFLICT (name) DO NOTHING;
 
 -- Conditions
-INSERT INTO conditions (name) VALUES
-  ('Acne'),
-  ('Rosacea'),
-  ('Eczema'),
-  ('Psoriasis'),
-  ('Sensitive Skin')
-ON CONFLICT (name) DO NOTHING;
+INSERT INTO conditions (name, condition_type) VALUES
+  ('Acne', 'existing'),
+  ('Rosacea', 'existing'),
+  ('Eczema', 'existing'),
+  ('Psoriasis', 'existing'),
+  ('Sensitive Skin', 'existing')
+ON CONFLICT DO NOTHING;
