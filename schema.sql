@@ -39,6 +39,16 @@ CREATE TABLE IF NOT EXISTS triggers (
     updated_at TIMESTAMP WITH TIME ZONE DEFAULT NOW()
 );
 
+-- Conditions table to store user skin conditions
+CREATE TABLE IF NOT EXISTS conditions (
+    id UUID PRIMARY KEY DEFAULT uuid_generate_v4(),
+    user_id UUID REFERENCES users(id) ON DELETE CASCADE,
+    name TEXT NOT NULL,
+    condition_type TEXT CHECK (condition_type IN ('existing', 'developed')),
+    created_at TIMESTAMP WITH TIME ZONE DEFAULT NOW(),
+    updated_at TIMESTAMP WITH TIME ZONE DEFAULT NOW()
+);
+
 -- Product logs table to track skincare products used
 CREATE TABLE IF NOT EXISTS product_logs (
     id UUID PRIMARY KEY DEFAULT uuid_generate_v4(),
@@ -91,6 +101,7 @@ CREATE INDEX IF NOT EXISTS idx_products_user_id ON products(user_id);
 CREATE INDEX IF NOT EXISTS idx_product_logs_user_id ON product_logs(user_id);
 CREATE INDEX IF NOT EXISTS idx_product_logs_logged_at ON product_logs(logged_at);
 CREATE INDEX IF NOT EXISTS idx_triggers_user_id ON triggers(user_id);
+CREATE INDEX IF NOT EXISTS idx_conditions_user_id ON conditions(user_id);
 CREATE INDEX IF NOT EXISTS idx_trigger_logs_user_id ON trigger_logs(user_id);
 CREATE INDEX IF NOT EXISTS idx_trigger_logs_logged_at ON trigger_logs(logged_at);
 CREATE INDEX IF NOT EXISTS idx_symptom_logs_user_id ON symptom_logs(user_id);
@@ -103,6 +114,7 @@ ALTER TABLE users ENABLE ROW LEVEL SECURITY;
 ALTER TABLE products ENABLE ROW LEVEL SECURITY;
 ALTER TABLE product_logs ENABLE ROW LEVEL SECURITY;
 ALTER TABLE triggers ENABLE ROW LEVEL SECURITY;
+ALTER TABLE conditions ENABLE ROW LEVEL SECURITY;
 ALTER TABLE trigger_logs ENABLE ROW LEVEL SECURITY;
 ALTER TABLE symptom_logs ENABLE ROW LEVEL SECURITY;
 ALTER TABLE photo_logs ENABLE ROW LEVEL SECURITY;
@@ -156,6 +168,27 @@ CREATE POLICY "Users can update own triggers" ON triggers
     ));
 
 CREATE POLICY "Users can delete own triggers" ON triggers
+    FOR DELETE USING (user_id IN (
+        SELECT id FROM users WHERE telegram_id = current_setting('request.telegram_id')::bigint
+    ));
+
+-- RLS Policies for conditions table
+CREATE POLICY "Users can view own conditions" ON conditions
+    FOR SELECT USING (user_id IN (
+        SELECT id FROM users WHERE telegram_id = current_setting('request.telegram_id')::bigint
+    ));
+
+CREATE POLICY "Users can insert own conditions" ON conditions
+    FOR INSERT WITH CHECK (user_id IN (
+        SELECT id FROM users WHERE telegram_id = current_setting('request.telegram_id')::bigint
+    ));
+
+CREATE POLICY "Users can update own conditions" ON conditions
+    FOR UPDATE USING (user_id IN (
+        SELECT id FROM users WHERE telegram_id = current_setting('request.telegram_id')::bigint
+    ));
+
+CREATE POLICY "Users can delete own conditions" ON conditions
     FOR DELETE USING (user_id IN (
         SELECT id FROM users WHERE telegram_id = current_setting('request.telegram_id')::bigint
     ));
