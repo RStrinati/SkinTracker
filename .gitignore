@@ -42,3 +42,10 @@ __pycache__/
 *.pyd
 *.dll
 *.so
+venv/
+__pycache__/
+*.pyc
+.env
+*.dll
+*.pyd
+*.so
