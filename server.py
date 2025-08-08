@@ -180,6 +180,10 @@ async def delete_webhook():
         raise HTTPException(status_code=500, detail="Failed to delete webhook")
 
 if __name__ == "__main__":
+    import os
     import uvicorn
-    port = int(os.getenv("PORT", 8000))
-    uvicorn.run(app, host="0.0.0.0", port=port)
+    host = "127.0.0.1"
+    port = int(os.getenv("PORT", "8081"))
+    # Pass the import string so reload works
+    uvicorn.run("server:app", host=host, port=port, reload=True)
+
