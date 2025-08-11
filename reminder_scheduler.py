@@ -2,6 +2,7 @@ from __future__ import annotations
 
 from telegram import Bot, InlineKeyboardButton, InlineKeyboardMarkup
 from types import SimpleNamespace
+import logging
 
 try:  # pragma: no cover - used when APScheduler is available
     from apscheduler.schedulers.asyncio import AsyncIOScheduler  # type: ignore
@@ -52,6 +53,7 @@ class ReminderScheduler:
         self.bot = bot
         self.scheduler = AsyncIOScheduler(timezone="UTC")
         self.scheduler.start()
+        self.logger = logging.getLogger(__name__)
 
     def schedule_daily_reminder(self, chat_id: int, reminder_time: str, timezone: str = "UTC") -> None:
         """Schedule or reschedule a user's daily reminder.
@@ -75,6 +77,12 @@ class ReminderScheduler:
             timezone=timezone,
             id=f"reminder_{chat_id}",
             replace_existing=True,
+        )
+        self.logger.info(
+            "Scheduled daily reminder for chat %s at %s (%s)",
+            chat_id,
+            reminder_time,
+            timezone,
         )
 
     async def send_daily_reminder(self, chat_id: int) -> None:
