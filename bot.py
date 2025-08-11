@@ -15,11 +15,6 @@ from openai_service import OpenAIService
 from reminder_scheduler import ReminderScheduler
 from skin_analysis import process_skin_image
 
-# Configure logging
-logging.basicConfig(
-    format='%(asctime)s - %(name)s - %(levelname)s - %(message)s',
-    level=logging.INFO
-)
 logger = logging.getLogger(__name__)
 
 class SkinHealthBot:

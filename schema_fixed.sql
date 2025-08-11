@@ -91,12 +91,17 @@ CREATE INDEX IF NOT EXISTS idx_products_user_id ON products(user_id);
 CREATE INDEX IF NOT EXISTS idx_product_logs_user_id ON product_logs(user_id);
 CREATE INDEX IF NOT EXISTS idx_product_logs_logged_at ON product_logs(logged_at);
 CREATE INDEX IF NOT EXISTS idx_triggers_user_id ON triggers(user_id);
+CREATE INDEX IF NOT EXISTS idx_conditions_user_id ON conditions(user_id);
 CREATE INDEX IF NOT EXISTS idx_trigger_logs_user_id ON trigger_logs(user_id);
 CREATE INDEX IF NOT EXISTS idx_trigger_logs_logged_at ON trigger_logs(logged_at);
 CREATE INDEX IF NOT EXISTS idx_symptom_logs_user_id ON symptom_logs(user_id);
 CREATE INDEX IF NOT EXISTS idx_symptom_logs_logged_at ON symptom_logs(logged_at);
 CREATE INDEX IF NOT EXISTS idx_photo_logs_user_id ON photo_logs(user_id);
 CREATE INDEX IF NOT EXISTS idx_photo_logs_logged_at ON photo_logs(logged_at);
+CREATE INDEX IF NOT EXISTS idx_users_username ON users(username);
+CREATE INDEX IF NOT EXISTS idx_products_name ON products(name);
+CREATE INDEX IF NOT EXISTS idx_triggers_name ON triggers(name);
+CREATE INDEX IF NOT EXISTS idx_conditions_name ON conditions(name);
 
 -- Create storage bucket for skin photos
 INSERT INTO storage.buckets (id, name, public, file_size_limit, allowed_mime_types)
