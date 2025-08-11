@@ -1,7 +1,7 @@
 import os
 import asyncio
 import logging
-from datetime import datetime, timedelta
+from datetime import datetime, timedelta, timezone as dt_timezone
 from typing import Dict, List, Optional, Any
 import uuid
 import tempfile
@@ -107,7 +107,7 @@ class Database:
                     'username': username,
                     'first_name': first_name,
                     'last_name': last_name,
-                    'updated_at': datetime.utcnow().isoformat()
+                    'updated_at': datetime.now(dt_timezone.utc).isoformat()
                 }
                 # Update reminder settings if provided
                 if timezone is not None:
@@ -127,8 +127,8 @@ class Database:
                     'last_name': last_name,
                     'timezone': timezone or 'UTC',
                     'reminder_time': reminder_time or '09:00',
-                    'created_at': datetime.utcnow().isoformat(),
-                    'updated_at': datetime.utcnow().isoformat()
+                    'created_at': datetime.now(dt_timezone.utc).isoformat(),
+                    'updated_at': datetime.now(dt_timezone.utc).isoformat()
                 }
                 
                 response = self.client.table('users').insert(user_data).execute()
@@ -155,7 +155,7 @@ class Database:
         try:
             update_data = {
                 'reminder_time': reminder_time,
-                'updated_at': datetime.utcnow().isoformat()
+                'updated_at': datetime.now(dt_timezone.utc).isoformat()
             }
             if timezone is not None:
                 update_data['timezone'] = timezone
@@ -295,7 +295,7 @@ class Database:
                 'product_name': product_name,
                 'effect': effect,
                 'notes': notes,
-                'logged_at': datetime.utcnow().isoformat()
+                'logged_at': datetime.now(dt_timezone.utc).isoformat()
             }
 
             response = self.client.table('product_logs').insert(product_data).execute()
@@ -320,7 +320,7 @@ class Database:
                 'user_id': user['id'],
                 'trigger_name': trigger_name,
                 'notes': notes,
-                'logged_at': datetime.utcnow().isoformat()
+                'logged_at': datetime.now(dt_timezone.utc).isoformat()
             }
             
             response = self.client.table('trigger_logs').insert(trigger_data).execute()
@@ -346,7 +346,7 @@ class Database:
                 'symptom_name': symptom_name,
                 'severity': severity,
                 'notes': notes,
-                'logged_at': datetime.utcnow().isoformat(),
+                'logged_at': datetime.now(dt_timezone.utc).isoformat(),
             }
 
             response = self.client.table('symptom_logs').insert(symptom_data).execute()
@@ -434,7 +434,7 @@ class Database:
                 'user_id': user['id'],
                 'photo_url': photo_url,
                 'ai_analysis': analysis,
-                'logged_at': datetime.utcnow().isoformat()
+                'logged_at': datetime.now(dt_timezone.utc).isoformat()
             }
             
             response = self.client.table('photo_logs').insert(photo_data).execute()
@@ -454,7 +454,7 @@ class Database:
                 return {}
             
             # Calculate date threshold
-            date_threshold = (datetime.utcnow() - timedelta(days=days)).isoformat()
+            date_threshold = (datetime.now(dt_timezone.utc) - timedelta(days=days)).isoformat()
             
             # Get all log types
             product_logs = self.client.table('product_logs')\
