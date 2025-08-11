@@ -12,6 +12,7 @@ on the actual image processing.
 from __future__ import annotations
 
 from datetime import datetime, timezone
+from multiprocessing import Pool
 from pathlib import Path
 from typing import Dict, Optional
 
@@ -141,13 +142,15 @@ def process_skin_image(
     if image is None:
         raise FileNotFoundError(f"Image not found: {image_path}")
 
-    normalized, rotated_points, face_mask = _align_face(image)
-    if normalized is None:
-        return None
+    # Use multiprocessing for face alignment and blemish detection
+    with Pool(processes=2) as pool:
+        normalized, rotated_points, face_mask = pool.apply(_align_face, (image,))
+        if normalized is None:
+            return None
 
-    blemish_mask, blemish_area, face_area, percent_blemished = _detect_blemishes(
-        normalized, rotated_points, face_mask
-    )
+        blemish_mask, blemish_area, face_area, percent_blemished = pool.apply(
+            _detect_blemishes, (normalized, rotated_points, face_mask)
+        )
 
     landmark_img = normalized.copy()
     for pt in rotated_points.astype(np.int32):
@@ -188,7 +191,6 @@ def process_skin_image(
                 bucket.upload(local_path.name, f, {'content-type': 'image/png'})
         client.table("skin_kpis").insert(record).execute()
 
-    face_mesh.close()
     return record
 
 
