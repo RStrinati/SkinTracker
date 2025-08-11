@@ -11,7 +11,7 @@ on the actual image processing.
 
 from __future__ import annotations
 
-from datetime import datetime
+from datetime import datetime, timezone
 from pathlib import Path
 from typing import Dict, Optional
 
@@ -162,7 +162,7 @@ def process_skin_image(
     record: Dict[str, object] = {
         "user_id": user_id,
         "image_id": image_id,
-        "timestamp": datetime.utcnow().isoformat(),
+        "timestamp": datetime.now(timezone.utc).isoformat(),
         "face_area_px": face_area,
         "blemish_area_px": int(blemish_area),
         "percent_blemished": percent_blemished,
