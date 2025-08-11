@@ -13,6 +13,12 @@ export const ENV_VARIABLES: EnvVariable[] = [
     required: true,
     instructions: "Go to [Supabase Dashboard](https://supabase.com/dashboard) → Your Project → Settings → API Keys → Copy 'Legacy API keys → anon public' key"
   },
+  {
+    name: "SUPABASE_SERVICE_ROLE_KEY",
+    description: "Supabase service role key for privileged operations",
+    required: false,
+    instructions: "Optional: Settings → API Keys → Copy 'service_role' key if running with elevated permissions"
+  },
   // Python Backend API Keys
   {
     name: "TELEGRAM_BOT_TOKEN",
@@ -25,6 +31,12 @@ export const ENV_VARIABLES: EnvVariable[] = [
     description: "OpenAI API key for GPT-4 skin health analysis and insights",
     required: true,
     instructions: "1. Go to [OpenAI Platform](https://platform.openai.com/api-keys)\n2. Create an account or log in\n3. Click 'Create new secret key'\n4. Copy the API key (starts with sk-)\n5. Make sure you have billing set up for API usage"
+  },
+  {
+    name: "BASE_URL",
+    description: "Public base URL where the FastAPI server is accessible",
+    required: false,
+    instructions: "Set to the externally reachable URL of the backend (e.g., https://example.ngrok.io)"
   }
 ];
 

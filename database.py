@@ -3,31 +3,29 @@ import asyncio
 import logging
 from datetime import datetime, timedelta, timezone as dt_timezone
 from typing import Dict, List, Optional, Any
-import uuid
-import tempfile
-import aiofiles
-from PIL import Image
 
 from supabase import create_client, Client
 from telegram import File
+
+from services.storage import StorageService
+from env import get_settings
 
 # Configure logging
 logger = logging.getLogger(__name__)
 
 class Database:
     def __init__(self):
-        self.supabase_url = os.getenv('NEXT_PUBLIC_SUPABASE_URL')
-        self.service_role_key = os.getenv('SUPABASE_SERVICE_ROLE_KEY')
-        self.anon_key = os.getenv('NEXT_PUBLIC_SUPABASE_ANON_KEY')
-
-        if not self.supabase_url:
-            raise ValueError("NEXT_PUBLIC_SUPABASE_URL is required")
-        if not self.anon_key:
-            raise ValueError("NEXT_PUBLIC_SUPABASE_ANON_KEY is required")
+        settings = get_settings()
+        self.supabase_url = settings.NEXT_PUBLIC_SUPABASE_URL
+        self.service_role_key = settings.SUPABASE_SERVICE_ROLE_KEY
+        self.anon_key = settings.NEXT_PUBLIC_SUPABASE_ANON_KEY
 
         # Use service role key if available, otherwise anon key
         self.supabase_key = self.service_role_key or self.anon_key
         self.client: Client = create_client(self.supabase_url, self.supabase_key)
+
+        # Service layer instances
+        self.storage = StorageService(self.client)
         
         # Only try to ensure bucket if we have service role key
         if self.service_role_key:
@@ -358,68 +356,8 @@ class Database:
             raise
 
     async def save_photo(self, user_id: int, file: File) -> tuple[str, str, str]:
-        """Save photo to Supabase storage and return URL, temp path and image ID."""
-        # Generate unique filename with user folder for privacy
-        file_extension = file.file_path.split('.')[-1] if '.' in file.file_path else 'jpg'
-        image_id = uuid.uuid4().hex
-        filename = f"uploads/{user_id}/{image_id}.{file_extension}"
-
-        logger.info(f"[{user_id}] Starting photo download...")
-        with tempfile.NamedTemporaryFile(delete=False, suffix=f'.{file_extension}') as temp_file:
-            temp_path = temp_file.name
-            try:
-                # Download file from Telegram
-                await file.download_to_drive(temp_path)
-                logger.info(f"[{user_id}] Photo downloaded to temp: {temp_path}")
-            except Exception as download_error:
-                logger.error(f"[{user_id}] Error downloading photo: {download_error}")
-                try:
-                    os.unlink(temp_path)
-                except Exception:
-                    pass
-                raise
-
-        # Optional: Resize image to reduce file size
-        try:
-            img = Image.open(temp_path)
-            img.thumbnail((1024, 1024))  # Resize to 1024px max dimension
-            img.save(temp_path, optimize=True, quality=85)
-            logger.info(f"[{user_id}] Image resized and optimized")
-        except Exception as resize_error:
-            logger.warning(f"[{user_id}] Could not resize image: {resize_error}")
-
-        logger.info(f"[{user_id}] Uploading to Supabase storage...")
-        try:
-            with open(temp_path, 'rb') as f:
-                response = self.client.storage.from_('skin-photos').upload(
-                    file=f,
-                    path=filename,
-                    file_options={"content-type": f"image/{file_extension}"}
-                )
-            logger.info(f"[{user_id}] Upload successful: {filename}")
-
-            # Check if upload was successful
-            if hasattr(response, 'error') and response.error:
-                logger.error(f"[{user_id}] Supabase upload error: {response.error}")
-                try:
-                    os.unlink(temp_path)
-                except Exception:
-                    pass
-                raise Exception(f"Upload failed: {response.error}")
-
-        except Exception as upload_error:
-            logger.error(f"[{user_id}] Error uploading to Supabase: {upload_error}")
-            try:
-                os.unlink(temp_path)
-            except Exception:
-                pass
-            raise
-
-        # Get public URL - use the same path as uploaded
-        public_url = self.client.storage.from_('skin-photos').get_public_url(filename)
-        logger.info(f"[{user_id}] Public URL generated: {public_url}")
-        # Caller is responsible for cleaning up temp_path
-        return public_url, temp_path, image_id
+        """Delegate photo saving to the storage service."""
+        return await self.storage.save_photo(user_id, file)
 
 
     async def log_photo(self, user_id: int, photo_url: str, analysis: str = None) -> Dict[str, Any]:
@@ -456,40 +394,29 @@ class Database:
             # Calculate date threshold
             date_threshold = (datetime.now(dt_timezone.utc) - timedelta(days=days)).isoformat()
             
-            # Get all log types
-            product_logs = self.client.table('product_logs')\
-                .select('*')\
-                .eq('user_id', user['id'])\
-                .gte('logged_at', date_threshold)\
-                .order('logged_at', desc=True)\
-                .execute()
-            
-            trigger_logs = self.client.table('trigger_logs')\
-                .select('*')\
-                .eq('user_id', user['id'])\
-                .gte('logged_at', date_threshold)\
-                .order('logged_at', desc=True)\
-                .execute()
-            
-            symptom_logs = self.client.table('symptom_logs')\
-                .select('*')\
-                .eq('user_id', user['id'])\
-                .gte('logged_at', date_threshold)\
-                .order('logged_at', desc=True)\
-                .execute()
-            
-            photo_logs = self.client.table('photo_logs')\
-                .select('*')\
-                .eq('user_id', user['id'])\
-                .gte('logged_at', date_threshold)\
-                .order('logged_at', desc=True)\
-                .execute()
-            
+            def fetch_logs(table_name: str):
+                return (
+                    self.client.table(table_name)
+                    .select('*')
+                    .eq('user_id', user['id'])
+                    .gte('logged_at', date_threshold)
+                    .order('logged_at', desc=True)
+                    .execute()
+                    .data
+                )
+
+            product_logs, trigger_logs, symptom_logs, photo_logs = await asyncio.gather(
+                asyncio.to_thread(fetch_logs, 'product_logs'),
+                asyncio.to_thread(fetch_logs, 'trigger_logs'),
+                asyncio.to_thread(fetch_logs, 'symptom_logs'),
+                asyncio.to_thread(fetch_logs, 'photo_logs'),
+            )
+
             return {
-                'products': product_logs.data,
-                'triggers': trigger_logs.data,
-                'symptoms': symptom_logs.data,
-                'photos': photo_logs.data
+                'products': product_logs,
+                'triggers': trigger_logs,
+                'symptoms': symptom_logs,
+                'photos': photo_logs
             }
             
         except Exception as e:
