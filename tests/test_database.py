@@ -113,3 +113,26 @@ async def test_add_and_get_conditions(monkeypatch):
     conditions = await db.get_conditions(1)
     assert conditions[0]['condition_type'] == 'existing'
     assert table.select.called
+
+
+@pytest.mark.anyio
+async def test_get_users_with_reminders(monkeypatch):
+    supabase_client = MagicMock()
+    supabase_client.storage = MagicMock()
+    supabase_client.storage.get_bucket.return_value = MagicMock()
+    table = MagicMock()
+    supabase_client.table.return_value = table
+    table.select.return_value = table
+    table.execute.return_value = MagicMock(data=[{
+        'telegram_id': 1,
+        'reminder_time': '09:00',
+        'timezone': 'UTC'
+    }])
+
+    monkeypatch.setenv('NEXT_PUBLIC_SUPABASE_URL', 'url')
+    monkeypatch.setenv('NEXT_PUBLIC_SUPABASE_ANON_KEY', 'key')
+    monkeypatch.setattr('database.create_client', lambda url, key: supabase_client)
+
+    db = Database()
+    users = await db.get_users_with_reminders()
+    assert users[0]['telegram_id'] == 1

@@ -95,6 +95,16 @@ class SkinHealthBot:
         await self._setup_persistent_menu()
         # Initialize reminder scheduler now that bot is available
         self.scheduler = ReminderScheduler(self.bot)
+
+        # Reload any stored reminder schedules so they persist across restarts
+        users = await self.database.get_users_with_reminders()
+        for user in users:
+            reminder_time = user.get("reminder_time")
+            if reminder_time:
+                self.scheduler.schedule_daily_reminder(
+                    user["telegram_id"], reminder_time, user.get("timezone", "UTC")
+                )
+
         logger.info("Bot initialized successfully")
 
     async def shutdown(self):
