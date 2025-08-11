@@ -170,6 +170,19 @@ class Database:
             logger.error(f"Error updating reminder time for user {telegram_id}: {e}")
             raise
 
+    async def get_users_with_reminders(self) -> List[Dict[str, Any]]:
+        """Return all users along with their reminder settings."""
+        try:
+            response = (
+                self.client.table('users')
+                .select('telegram_id, reminder_time, timezone')
+                .execute()
+            )
+            return response.data or []
+        except Exception as e:
+            logger.error(f"Error fetching user reminders: {e}")
+            return []
+
     async def get_products(self, user_id: int) -> List[Dict[str, Any]]:
         """Retrieve products for a user including global ones."""
         try:
