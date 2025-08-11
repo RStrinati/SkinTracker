@@ -35,6 +35,89 @@ def _gamma_correction(image: np.ndarray, gamma: float = 1.5) -> np.ndarray:
     return cv2.LUT(image, table)
 
 
+def _align_face(image: np.ndarray):
+    """Align face in the image and return normalized image and landmarks."""
+    height, width = image.shape[:2]
+    face_mesh = mp.solutions.face_mesh.FaceMesh(static_image_mode=True)
+    results = face_mesh.process(cv2.cvtColor(image, cv2.COLOR_BGR2RGB))
+    if not results.multi_face_landmarks:
+        face_mesh.close()
+        return None, None, None
+
+    landmarks = results.multi_face_landmarks[0]
+    points = np.array(
+        [(lm.x * width, lm.y * height) for lm in landmarks.landmark], dtype=np.float32
+    )
+    left_eye = points[33]
+    right_eye = points[263]
+    dy, dx = right_eye[1] - left_eye[1], right_eye[0] - left_eye[0]
+    angle = np.degrees(np.arctan2(dy, dx))
+
+    center = (width / 2, height / 2)
+    rot_matrix = cv2.getRotationMatrix2D(center, angle, 1.0)
+    rotated = cv2.warpAffine(image, rot_matrix, (width, height))
+
+    ones = np.ones((points.shape[0], 1))
+    points_hom = np.hstack([points, ones])
+    rotated_points = (rot_matrix @ points_hom.T).T
+
+    x_min, y_min = rotated_points.min(axis=0).astype(int)
+    x_max, y_max = rotated_points.max(axis=0).astype(int)
+    x_min = max(x_min, 0)
+    y_min = max(y_min, 0)
+    x_max = min(x_max, rotated.shape[1])
+    y_max = min(y_max, rotated.shape[0])
+
+    aligned = rotated[y_min:y_max, x_min:x_max]
+    rotated_points -= [x_min, y_min]
+    aligned = cv2.resize(aligned, (300, 300))
+    scale_x = 300 / (x_max - x_min)
+    scale_y = 300 / (y_max - y_min)
+    rotated_points *= [scale_x, scale_y]
+
+    ycrcb = cv2.cvtColor(aligned, cv2.COLOR_BGR2YCrCb)
+    y, cr, cb = cv2.split(ycrcb)
+    clahe = cv2.createCLAHE(clipLimit=2.0, tileGridSize=(8, 8))
+    y = clahe.apply(y)
+    ycrcb = cv2.merge([y, cr, cb])
+    normalized = cv2.cvtColor(ycrcb, cv2.COLOR_YCrCb2BGR)
+    normalized = _gamma_correction(normalized)
+
+    face_hull = cv2.convexHull(rotated_points.astype(np.int32))
+    face_mask = np.zeros(normalized.shape[:2], dtype=np.uint8)
+    cv2.fillConvexPoly(face_mask, face_hull, 255)
+
+    face_mesh.close()
+    return normalized, rotated_points, face_mask
+
+
+def _detect_blemishes(normalized: np.ndarray, rotated_points: np.ndarray, face_mask: np.ndarray):
+    """Detect blemishes and compute statistics."""
+    gray = cv2.cvtColor(normalized, cv2.COLOR_BGR2GRAY)
+    masked_gray = cv2.bitwise_and(gray, face_mask)
+    blurred = cv2.GaussianBlur(masked_gray, (7, 7), 0)
+    _, thresh = cv2.threshold(
+        blurred, 0, 255, cv2.THRESH_BINARY_INV + cv2.THRESH_OTSU
+    )
+    thresh = cv2.bitwise_and(thresh, face_mask)
+
+    contours, _ = cv2.findContours(thresh, cv2.RETR_EXTERNAL, cv2.CHAIN_APPROX_SIMPLE)
+    blemish_mask = np.zeros_like(face_mask)
+    blemish_area = 0
+    for cnt in contours:
+        area = cv2.contourArea(cnt)
+        if 50 <= area <= 2000:
+            blemish_area += area
+            cv2.drawContours(blemish_mask, [cnt], -1, 255, -1)
+
+    face_area = int(cv2.countNonZero(face_mask))
+    percent_blemished = (
+        float(blemish_area) / face_area * 100 if face_area > 0 else 0.0
+    )
+
+    return blemish_mask, blemish_area, face_area, percent_blemished
+
+
 def process_skin_image(
     image_path: str, user_id: str, image_id: str, client: Optional[Client] = None
 ) -> Optional[Dict[str, object]]:
@@ -58,87 +141,14 @@ def process_skin_image(
     if image is None:
         raise FileNotFoundError(f"Image not found: {image_path}")
 
-    height, width = image.shape[:2]
-    face_mesh = mp.solutions.face_mesh.FaceMesh(static_image_mode=True)
-    results = face_mesh.process(cv2.cvtColor(image, cv2.COLOR_BGR2RGB))
-    if not results.multi_face_landmarks:
-        face_mesh.close()
+    normalized, rotated_points, face_mask = _align_face(image)
+    if normalized is None:
         return None
 
-    landmarks = results.multi_face_landmarks[0]
-
-    # Convert landmarks to pixel coordinates
-    points = np.array(
-        [(lm.x * width, lm.y * height) for lm in landmarks.landmark], dtype=np.float32
+    blemish_mask, blemish_area, face_area, percent_blemished = _detect_blemishes(
+        normalized, rotated_points, face_mask
     )
 
-    left_eye = points[33]
-    right_eye = points[263]
-    dy, dx = right_eye[1] - left_eye[1], right_eye[0] - left_eye[0]
-    angle = np.degrees(np.arctan2(dy, dx))
-
-    center = (width / 2, height / 2)
-    rot_matrix = cv2.getRotationMatrix2D(center, angle, 1.0)
-    rotated = cv2.warpAffine(image, rot_matrix, (width, height))
-
-    # Rotate landmarks
-    ones = np.ones((points.shape[0], 1))
-    points_hom = np.hstack([points, ones])
-    rotated_points = (rot_matrix @ points_hom.T).T
-
-    # Crop to face bounding box
-    x_min, y_min = rotated_points.min(axis=0).astype(int)
-    x_max, y_max = rotated_points.max(axis=0).astype(int)
-    x_min = max(x_min, 0)
-    y_min = max(y_min, 0)
-    x_max = min(x_max, rotated.shape[1])
-    y_max = min(y_max, rotated.shape[0])
-
-    aligned = rotated[y_min:y_max, x_min:x_max]
-    rotated_points -= [x_min, y_min]
-    aligned = cv2.resize(aligned, (300, 300))
-    scale_x = 300 / (x_max - x_min)
-    scale_y = 300 / (y_max - y_min)
-    rotated_points *= [scale_x, scale_y]
-
-    # Lighting normalization
-    ycrcb = cv2.cvtColor(aligned, cv2.COLOR_BGR2YCrCb)
-    y, cr, cb = cv2.split(ycrcb)
-    clahe = cv2.createCLAHE(clipLimit=2.0, tileGridSize=(8, 8))
-    y = clahe.apply(y)
-    ycrcb = cv2.merge([y, cr, cb])
-    normalized = cv2.cvtColor(ycrcb, cv2.COLOR_YCrCb2BGR)
-    normalized = _gamma_correction(normalized)
-
-    # Face mask
-    face_hull = cv2.convexHull(rotated_points.astype(np.int32))
-    face_mask = np.zeros(normalized.shape[:2], dtype=np.uint8)
-    cv2.fillConvexPoly(face_mask, face_hull, 255)
-
-    # Blemish detection
-    gray = cv2.cvtColor(normalized, cv2.COLOR_BGR2GRAY)
-    masked_gray = cv2.bitwise_and(gray, face_mask)
-    blurred = cv2.GaussianBlur(masked_gray, (7, 7), 0)
-    _, thresh = cv2.threshold(
-        blurred, 0, 255, cv2.THRESH_BINARY_INV + cv2.THRESH_OTSU
-    )
-    thresh = cv2.bitwise_and(thresh, face_mask)
-
-    contours, _ = cv2.findContours(thresh, cv2.RETR_EXTERNAL, cv2.CHAIN_APPROX_SIMPLE)
-    blemish_mask = np.zeros_like(face_mask)
-    blemish_area = 0
-    for cnt in contours:
-        area = cv2.contourArea(cnt)
-        if 50 <= area <= 2000:
-            blemish_area += area
-            cv2.drawContours(blemish_mask, [cnt], -1, 255, -1)
-
-    face_area = int(cv2.countNonZero(face_mask))
-    percent_blemished = (
-        float(blemish_area) / face_area * 100 if face_area > 0 else 0.0
-    )
-
-    # Visualisations
     landmark_img = normalized.copy()
     for pt in rotated_points.astype(np.int32):
         cv2.circle(landmark_img, tuple(pt), 1, (0, 255, 0), -1)

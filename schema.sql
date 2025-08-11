@@ -108,6 +108,10 @@ CREATE INDEX IF NOT EXISTS idx_symptom_logs_user_id ON symptom_logs(user_id);
 CREATE INDEX IF NOT EXISTS idx_symptom_logs_logged_at ON symptom_logs(logged_at);
 CREATE INDEX IF NOT EXISTS idx_photo_logs_user_id ON photo_logs(user_id);
 CREATE INDEX IF NOT EXISTS idx_photo_logs_logged_at ON photo_logs(logged_at);
+CREATE INDEX IF NOT EXISTS idx_users_username ON users(username);
+CREATE INDEX IF NOT EXISTS idx_products_name ON products(name);
+CREATE INDEX IF NOT EXISTS idx_triggers_name ON triggers(name);
+CREATE INDEX IF NOT EXISTS idx_conditions_name ON conditions(name);
 
 -- Enable Row Level Security (RLS) for all tables
 ALTER TABLE users ENABLE ROW LEVEL SECURITY;
