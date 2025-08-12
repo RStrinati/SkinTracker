@@ -10,9 +10,17 @@ import time
 import logging
 import json
 
+import os
+from dotenv import load_dotenv
+
 from bot import SkinHealthBot
-from env import get_settings
 from api.routers.analysis import router as analysis_router
+
+# Load environment variables from .env file
+load_dotenv()
+
+TELEGRAM_BOT_TOKEN = os.getenv("TELEGRAM_BOT_TOKEN")
+BASE_URL = os.getenv("BASE_URL")
 
 # Structured logging setup
 class JsonFormatter(logging.Formatter):
@@ -31,8 +39,6 @@ root_logger = logging.getLogger()
 root_logger.handlers = [handler]
 root_logger.setLevel(logging.INFO)
 logger = logging.getLogger(__name__)
-
-settings = get_settings()
 
 app = FastAPI(title="Skin Health Tracker Bot", version="1.0.0")
 api_router = APIRouter(prefix="/api/v1")
@@ -78,7 +84,7 @@ class TelegramAuthRequest(BaseModel):
 @api_router.post("/auth/telegram")
 async def telegram_auth(data: TelegramAuthRequest):
     try:
-        bot_token = settings.TELEGRAM_BOT_TOKEN
+        bot_token = TELEGRAM_BOT_TOKEN
         if not bot_token:
             logger.error("TELEGRAM_BOT_TOKEN is not set")
             raise HTTPException(status_code=500, detail="Bot token not configured")
@@ -138,7 +144,7 @@ async def analyze_ingredients(req: IngredientRequest):
 @api_router.post("/set-webhook")
 async def set_webhook():
     try:
-        base_url = settings.BASE_URL
+        base_url = BASE_URL
         if not base_url:
             logger.error("BASE_URL environment variable is not set")
             raise HTTPException(status_code=500, detail="BASE_URL environment variable is not configured")
