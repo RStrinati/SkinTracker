@@ -2,6 +2,7 @@ import os
 import logging
 import tempfile
 import uuid
+import asyncio
 from typing import Tuple
 
 from PIL import Image
@@ -50,11 +51,13 @@ class StorageService:
 
         logger.info("[%s] Uploading to Supabase storage...", user_id)
         try:
+            bucket = self.client.storage.from_('skin-photos')
             with open(temp_path, 'rb') as f:
-                response = self.client.storage.from_('skin-photos').upload(
-                    file=f,
-                    path=filename,
-                    file_options={"content-type": f"image/{file_extension}"}
+                response = await asyncio.to_thread(
+                    bucket.upload,
+                    filename,
+                    f,
+                    {"content-type": f"image/{file_extension}"},
                 )
             logger.info("[%s] Upload successful: %s", user_id, filename)
             if hasattr(response, 'error') and response.error:
@@ -72,7 +75,10 @@ class StorageService:
                 pass
             raise
 
-        public_url = self.client.storage.from_("skin-photos").get_public_url(filename)
+
+
+
+        public_url = await asyncio.to_thread(bucket.get_public_url, filename)
         logger.info("[%s] Public URL generated: %s", user_id, public_url)
 
         try:

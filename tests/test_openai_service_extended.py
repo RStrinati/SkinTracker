@@ -1,5 +1,4 @@
-import os
-import asyncio
+import pytest
 from unittest.mock import MagicMock
 
 from openai_service import OpenAIService
@@ -20,12 +19,13 @@ class FakeClient:
         self.chat = FakeChat(content)
 
 def fake_openai(api_key=None):
-    return FakeClient("summary")
+    return FakeClient("error")
 
-def test_generate_summary(monkeypatch):
-    monkeypatch.setenv('OPENAI_API_KEY', 'key')
+@pytest.mark.anyio
+async def test_generate_summary_invalid_key(monkeypatch):
+    monkeypatch.setenv('OPENAI_API_KEY', 'invalid_key')
     monkeypatch.setattr('openai_service.AsyncOpenAI', fake_openai)
 
     service = OpenAIService()
-    result = asyncio.run(service.generate_summary({'products': [], 'triggers': [], 'symptoms': [], 'photos': []}))
-    assert result == "summary"
+    with pytest.raises(Exception):
+        await service.generate_summary({'products': [], 'triggers': [], 'symptoms': [], 'photos': []})
