@@ -3,6 +3,7 @@
 
 -- Enable UUID extension
 CREATE EXTENSION IF NOT EXISTS "uuid-ossp";
+CREATE EXTENSION IF NOT EXISTS vector;
 
 -- Users table to store Telegram user information
 CREATE TABLE IF NOT EXISTS users (
@@ -85,6 +86,21 @@ CREATE TABLE IF NOT EXISTS photo_logs (
     updated_at TIMESTAMP WITH TIME ZONE DEFAULT NOW()
 );
 
+-- Face embeddings table to enable face similarity search
+CREATE TABLE IF NOT EXISTS face_embeddings (
+    id UUID PRIMARY KEY DEFAULT uuid_generate_v4(),
+    user_id UUID,
+    photo_key TEXT NOT NULL,
+    face_index INT NOT NULL,
+    embedding VECTOR(512),
+    det_score REAL,
+    bbox JSONB,
+    created_at TIMESTAMP WITH TIME ZONE DEFAULT NOW()
+);
+
+CREATE INDEX IF NOT EXISTS face_embeddings_vec_cos ON face_embeddings
+USING ivfflat (embedding vector_cosine_ops) WITH (lists = 100);
+
 -- Create indexes for better query performance
 CREATE INDEX IF NOT EXISTS idx_users_telegram_id ON users(telegram_id);
 CREATE INDEX IF NOT EXISTS idx_products_user_id ON products(user_id);
@@ -152,6 +168,7 @@ COMMENT ON TABLE product_logs IS 'Tracks skincare products used by users with ti
 COMMENT ON TABLE trigger_logs IS 'Records skin irritation triggers experienced by users';
 COMMENT ON TABLE symptom_logs IS 'Stores symptom severity ratings on a 1-5 scale';
 COMMENT ON TABLE photo_logs IS 'Contains skin photos with AI analysis and metadata';
+COMMENT ON TABLE face_embeddings IS 'Face embeddings and metadata for similarity search';
 
 COMMENT ON COLUMN symptom_logs.severity IS 'Severity rating from 1 (very mild) to 5 (very severe)';
 COMMENT ON COLUMN photo_logs.ai_analysis IS 'AI-generated analysis of the skin photo';
