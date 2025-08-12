@@ -5,6 +5,7 @@ from typing import Any, Dict, List
 
 import cv2  # type: ignore
 import numpy as np
+import onnxruntime as ort  # type: ignore
 from insightface.app import FaceAnalysis
 
 from .base import AnalysisProvider
@@ -14,9 +15,18 @@ class InsightFaceProvider(AnalysisProvider):
     """InsightFace implementation using the ``buffalo_l`` model."""
 
     def __init__(self) -> None:
-        self.app = FaceAnalysis(name="buffalo_l", providers=["CPUExecutionProvider"])
-        # Prepare with reasonable detection size
-        self.app.prepare(ctx_id=0, det_size=(640, 640))
+        providers = (
+            ["CUDAExecutionProvider"]
+            if "CUDAExecutionProvider" in ort.get_available_providers()
+            else ["CPUExecutionProvider"]
+        )
+        ctx_id = 0 if providers[0] != "CPUExecutionProvider" else -1
+        try:
+            self.app = FaceAnalysis(name="buffalo_l", providers=providers)
+            # Prepare with reasonable detection size
+            self.app.prepare(ctx_id=ctx_id, det_size=(640, 640))
+        except Exception as exc:  # pragma: no cover - initialization failures
+            raise RuntimeError("InsightFace initialization failed") from exc
 
     def _resize_image(self, img: np.ndarray) -> np.ndarray:
         """Resize image so that the longest side is at most 1280 px."""
