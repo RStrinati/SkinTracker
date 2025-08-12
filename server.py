@@ -1,7 +1,7 @@
 from fastapi import FastAPI, Request, HTTPException, BackgroundTasks, APIRouter
 from fastapi.responses import JSONResponse
 from pydantic import BaseModel
-from typing import List, Optional, Dict
+from typing import List, Optional
 import asyncio
 import hashlib
 import hmac
@@ -9,6 +9,7 @@ import secrets
 import time
 import logging
 import json
+import sqlite3
 
 import os
 from dotenv import load_dotenv
@@ -21,6 +22,8 @@ load_dotenv()
 
 TELEGRAM_BOT_TOKEN = os.getenv("TELEGRAM_BOT_TOKEN")
 BASE_URL = os.getenv("BASE_URL")
+SESSION_DB_PATH = os.getenv("SESSION_DB_PATH", "auth_sessions.db")
+SESSION_TTL = int(os.getenv("SESSION_TTL", 24 * 60 * 60))
 
 # Structured logging setup
 class JsonFormatter(logging.Formatter):
@@ -46,7 +49,67 @@ api_router.include_router(analysis_router)
 
 bot = SkinHealthBot()
 
-sessions: Dict[str, int] = {}
+# ---------------------------------------------------------------------------
+# Persistent session store using SQLite
+# ---------------------------------------------------------------------------
+_session_conn = sqlite3.connect(SESSION_DB_PATH, check_same_thread=False)
+_session_conn.execute(
+    """
+    CREATE TABLE IF NOT EXISTS auth_sessions (
+        token TEXT PRIMARY KEY,
+        user_id INTEGER NOT NULL,
+        expires_at INTEGER NOT NULL
+    )
+    """
+)
+_session_conn.commit()
+
+
+def _purge_expired_sessions() -> None:
+    """Remove expired session entries from the store."""
+    with _session_conn:
+        _session_conn.execute(
+            "DELETE FROM auth_sessions WHERE expires_at < ?",
+            (int(time.time()),),
+        )
+
+
+def save_session(token: str, user_id: int, ttl: int = SESSION_TTL) -> None:
+    """Persist a session token with an expiration time."""
+    expires_at = int(time.time()) + ttl
+    with _session_conn:
+        _purge_expired_sessions()
+        _session_conn.execute(
+            "INSERT OR REPLACE INTO auth_sessions (token, user_id, expires_at) VALUES (?, ?, ?)",
+            (token, user_id, expires_at),
+        )
+
+
+def get_user_id_from_token(token: str) -> Optional[int]:
+    """Return user_id if the token is valid, otherwise ``None``."""
+    cur = _session_conn.execute(
+        "SELECT user_id, expires_at FROM auth_sessions WHERE token = ?",
+        (token,),
+    )
+    row = cur.fetchone()
+    if not row:
+        return None
+    user_id, expires_at = row
+    if expires_at < int(time.time()):
+        with _session_conn:
+            _session_conn.execute(
+                "DELETE FROM auth_sessions WHERE token = ?", (token,)
+            )
+        return None
+    return user_id
+
+
+def require_user_id(token: str) -> int:
+    """Validate a session token and return the associated user ID."""
+    user_id = get_user_id_from_token(token)
+    if not user_id:
+        raise HTTPException(status_code=401, detail="Invalid or expired token")
+    return user_id
 
 @app.on_event("startup")
 async def startup_event():
@@ -106,7 +169,7 @@ async def telegram_auth(data: TelegramAuthRequest):
             raise HTTPException(status_code=403, detail="Authentication data is too old")
 
         session_token = secrets.token_urlsafe(32)
-        sessions[session_token] = data.id
+        save_session(session_token, data.id)
         return {"token": session_token}
 
     except HTTPException:
