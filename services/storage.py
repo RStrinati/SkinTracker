@@ -16,10 +16,11 @@ class StorageService:
     def __init__(self, client: Client):
         self.client = client
 
-    async def save_photo(self, user_id: int, file: File) -> Tuple[str, str, str]:
+    async def save_photo(self, user_id: int, file: File) -> Tuple[str, str]:
         """Save a Telegram photo to Supabase storage.
 
-        Returns the public URL, local temporary path and generated image ID.
+        Returns the public URL and generated image ID. Temporary files are
+        cleaned up automatically.
         """
         file_extension = file.file_path.split('.')[-1] if '.' in file.file_path else 'jpg'
         image_id = uuid.uuid4().hex
@@ -71,6 +72,13 @@ class StorageService:
                 pass
             raise
 
-        public_url = self.client.storage.from_('skin-photos').get_public_url(filename)
+        public_url = self.client.storage.from_("skin-photos").get_public_url(filename)
         logger.info("[%s] Public URL generated: %s", user_id, public_url)
-        return public_url, temp_path, image_id
+
+        try:
+            os.unlink(temp_path)
+            logger.info("[%s] Temporary file deleted: %s", user_id, temp_path)
+        except Exception as cleanup_error:
+            logger.warning("[%s] Could not delete temp file %s: %s", user_id, temp_path, cleanup_error)
+
+        return public_url, image_id

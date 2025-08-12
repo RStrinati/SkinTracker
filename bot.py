@@ -15,7 +15,6 @@ from fastapi import BackgroundTasks
 from database import Database
 from openai_service import OpenAIService
 from reminder_scheduler import ReminderScheduler
-from skin_analysis import process_skin_image
 
 # Load environment variables from .env file
 load_dotenv()
@@ -603,24 +602,14 @@ Track consistently for best results! 🌟
             # Get file info
             file = await context.bot.get_file(photo.file_id)
 
-            # Upload to Supabase storage and get local temp path and image id
-            photo_url, temp_path, image_id = await self.database.save_photo(user_id, file)
-
-            # Offload processing to a background task
-            background_tasks.add_task(
-                process_skin_image,
-                temp_path,
-                str(user_id),
-                image_id,
-                self.database.client,
-            )
+            # Upload to Supabase storage and get image id
+            photo_url, image_id = await self.database.save_photo(user_id, file)
 
             # Save photo log without AI analysis
             await self.database.log_photo(user_id, photo_url)
 
             await update.message.reply_text(
-                "\ud83d\udcf7 Photo uploaded successfully!\n\n"
-                "Processing will continue in the background. You will be notified once complete."
+                "\ud83d\udcf7 Photo uploaded successfully!"
             )
 
             await self.send_main_menu(update)
