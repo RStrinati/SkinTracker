@@ -14,6 +14,8 @@ from telegram.constants import ParseMode
 from database import Database
 from openai_service import OpenAIService
 from reminder_scheduler import ReminderScheduler
+from analysis_providers.insightface_provider import InsightFaceProvider
+from skin_analysis import process_skin_image
 
 # Load environment variables from .env file
 load_dotenv()
@@ -31,6 +33,7 @@ class SkinHealthBot:
         self.database = Database()
         self.openai_service = OpenAIService()
         self.scheduler: Optional[ReminderScheduler] = None
+        self.analysis_provider = InsightFaceProvider()
 
         # Default fallback options if database tables are empty
         self.default_products = [
@@ -613,6 +616,7 @@ Track consistently for best results! 🌟
                     str(user_id),
                     image_id,
                     self.database.client,
+                    self.analysis_provider,
                 )
             )
 

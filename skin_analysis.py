@@ -1,98 +1,49 @@
-"""Skin image analysis background task.
-
-This module provides a utility function that downloads a skin image,
-aligns the face, normalizes lighting, detects blemishes and stores
-results in Supabase.  The implementation follows the specification in
-the user instructions.  All heavy dependencies (OpenCV and Mediapipe)
-are imported lazily so that the module can be imported without the
-libraries being installed – useful for running tests that do not rely
-on the actual image processing.
-"""
+"""Skin image analysis utilities with pluggable face providers."""
 
 from __future__ import annotations
 
 from datetime import datetime, timezone
-from multiprocessing import Pool
 from pathlib import Path
 from typing import Dict, Optional
 
 import numpy as np
 
-try:  # Heavy dependencies are imported lazily
+try:  # Heavy dependency imported lazily
     import cv2  # type: ignore
-    import mediapipe as mp  # type: ignore
 except Exception:  # pragma: no cover - handled gracefully
     cv2 = None  # type: ignore
-    mp = None  # type: ignore
 
 from supabase import Client
 
-
-def _gamma_correction(image: np.ndarray, gamma: float = 1.5) -> np.ndarray:
-    inv_gamma = 1.0 / gamma
-    table = np.array([(i / 255.0) ** inv_gamma * 255 for i in range(256)]).astype(
-        "uint8"
-    )
-    return cv2.LUT(image, table)
+from analysis_providers.base import FaceAnalysisProvider
 
 
-def _align_face(image: np.ndarray):
-    """Align face in the image and return normalized image and landmarks."""
-    height, width = image.shape[:2]
-    face_mesh = mp.solutions.face_mesh.FaceMesh(static_image_mode=True)
-    results = face_mesh.process(cv2.cvtColor(image, cv2.COLOR_BGR2RGB))
-    if not results.multi_face_landmarks:
-        face_mesh.close()
-        return None, None, None
-
-    landmarks = results.multi_face_landmarks[0]
-    points = np.array(
-        [(lm.x * width, lm.y * height) for lm in landmarks.landmark], dtype=np.float32
-    )
-    left_eye = points[33]
-    right_eye = points[263]
-    dy, dx = right_eye[1] - left_eye[1], right_eye[0] - left_eye[0]
+def align_face(image: np.ndarray, bbox: np.ndarray, landmarks: np.ndarray):
+    """Rotate and crop the face based on eye landmarks."""
+    x1, y1, x2, y2 = bbox.astype(int)
+    left_eye, right_eye = landmarks[0], landmarks[1]
+    dx, dy = right_eye[0] - left_eye[0], right_eye[1] - left_eye[1]
     angle = np.degrees(np.arctan2(dy, dx))
-
-    center = (width / 2, height / 2)
+    center = ((x1 + x2) / 2, (y1 + y2) / 2)
     rot_matrix = cv2.getRotationMatrix2D(center, angle, 1.0)
-    rotated = cv2.warpAffine(image, rot_matrix, (width, height))
+    rotated = cv2.warpAffine(image, rot_matrix, (image.shape[1], image.shape[0]))
 
-    ones = np.ones((points.shape[0], 1))
-    points_hom = np.hstack([points, ones])
-    rotated_points = (rot_matrix @ points_hom.T).T
+    ones = np.ones((landmarks.shape[0], 1))
+    landmarks_hom = np.hstack([landmarks, ones])
+    rotated_points = (rot_matrix @ landmarks_hom.T).T
 
-    x_min, y_min = rotated_points.min(axis=0).astype(int)
-    x_max, y_max = rotated_points.max(axis=0).astype(int)
-    x_min = max(x_min, 0)
-    y_min = max(y_min, 0)
-    x_max = min(x_max, rotated.shape[1])
-    y_max = min(y_max, rotated.shape[0])
+    crop = rotated[y1:y2, x1:x2]
+    rotated_points -= [x1, y1]
+    aligned = cv2.resize(crop, (300, 300))
+    scale_x = 300 / (x2 - x1)
+    scale_y = 300 / (y2 - y1)
+    aligned_points = rotated_points * [scale_x, scale_y]
 
-    aligned = rotated[y_min:y_max, x_min:x_max]
-    rotated_points -= [x_min, y_min]
-    aligned = cv2.resize(aligned, (300, 300))
-    scale_x = 300 / (x_max - x_min)
-    scale_y = 300 / (y_max - y_min)
-    rotated_points *= [scale_x, scale_y]
-
-    ycrcb = cv2.cvtColor(aligned, cv2.COLOR_BGR2YCrCb)
-    y, cr, cb = cv2.split(ycrcb)
-    clahe = cv2.createCLAHE(clipLimit=2.0, tileGridSize=(8, 8))
-    y = clahe.apply(y)
-    ycrcb = cv2.merge([y, cr, cb])
-    normalized = cv2.cvtColor(ycrcb, cv2.COLOR_YCrCb2BGR)
-    normalized = _gamma_correction(normalized)
-
-    face_hull = cv2.convexHull(rotated_points.astype(np.int32))
-    face_mask = np.zeros(normalized.shape[:2], dtype=np.uint8)
-    cv2.fillConvexPoly(face_mask, face_hull, 255)
-
-    face_mesh.close()
-    return normalized, rotated_points, face_mask
+    mask = np.full((300, 300), 255, dtype=np.uint8)
+    return aligned, aligned_points, mask
 
 
-def _detect_blemishes(normalized: np.ndarray, rotated_points: np.ndarray, face_mask: np.ndarray):
+def detect_blemishes(normalized: np.ndarray, face_mask: np.ndarray):
     """Detect blemishes and compute statistics."""
     gray = cv2.cvtColor(normalized, cv2.COLOR_BGR2GRAY)
     masked_gray = cv2.bitwise_and(gray, face_mask)
@@ -120,40 +71,41 @@ def _detect_blemishes(normalized: np.ndarray, rotated_points: np.ndarray, face_m
 
 
 def process_skin_image(
-    image_path: str, user_id: str, image_id: str, client: Optional[Client] = None
+    image_path: str,
+    user_id: str,
+    image_id: str,
+    client: Optional[Client] = None,
+    provider: Optional[FaceAnalysisProvider] = None,
 ) -> Optional[Dict[str, object]]:
-    """Process a skin image and store KPI results.
+    """Process a skin image and store KPI results."""
 
-    Args:
-        image_path: Local path to the downloaded image.
-        user_id: ID of the user uploading the image.
-        image_id: Unique identifier of the image.
-        client: Optional Supabase client used for uploading results.
+    if cv2 is None:
+        raise RuntimeError("OpenCV must be installed to use this function")
 
-    Returns:
-        KPI dictionary or ``None`` if no face was detected.
-    """
+    if provider is None:
+        from analysis_providers.insightface_provider import InsightFaceProvider
 
-    if cv2 is None or mp is None:
-        raise RuntimeError("OpenCV and Mediapipe must be installed to use this function")
+        provider = InsightFaceProvider()
 
     img_path = Path(image_path)
     image = cv2.imread(str(img_path))
     if image is None:
         raise FileNotFoundError(f"Image not found: {image_path}")
 
-    # Use multiprocessing for face alignment and blemish detection
-    with Pool(processes=2) as pool:
-        normalized, rotated_points, face_mask = pool.apply(_align_face, (image,))
-        if normalized is None:
-            return None
+    analysis = provider.analyze(img_path)
+    if analysis.get("face_count", 0) == 0:
+        return None
+    face = analysis["faces"][0]
+    bbox = np.array(face["bbox_xyxy"], dtype=np.float32)
+    landmarks = np.array(face["landmarks_5"], dtype=np.float32)
 
-        blemish_mask, blemish_area, face_area, percent_blemished = pool.apply(
-            _detect_blemishes, (normalized, rotated_points, face_mask)
-        )
+    normalized, points, face_mask = align_face(image, bbox, landmarks)
+    blemish_mask, blemish_area, face_area, percent_blemished = detect_blemishes(
+        normalized, face_mask
+    )
 
     landmark_img = normalized.copy()
-    for pt in rotated_points.astype(np.int32):
+    for pt in points.astype(np.int32):
         cv2.circle(landmark_img, tuple(pt), 1, (0, 255, 0), -1)
 
     blemish_img = np.zeros_like(normalized)
@@ -162,7 +114,6 @@ def process_skin_image(
     overlay_img = normalized.copy()
     overlay_img[blemish_mask == 255] = (0, 0, 255)
 
-    # Save images
     base = f"{user_id}_{image_id}"
     face_image_path = img_path.parent / f"{base}_face.png"
     blemish_image_path = img_path.parent / f"{base}_blemishes.png"
@@ -188,11 +139,11 @@ def process_skin_image(
         bucket = client.storage.from_("skin-photos")
         for local_path in [face_image_path, blemish_image_path, overlay_image_path]:
             with open(local_path, "rb") as f:
-                bucket.upload(local_path.name, f, {'content-type': 'image/png'})
+                bucket.upload(local_path.name, f, {"content-type": "image/png"})
         client.table("skin_kpis").insert(record).execute()
 
     return record
 
 
-__all__ = ["process_skin_image"]
+__all__ = ["process_skin_image", "align_face", "detect_blemishes"]
 
