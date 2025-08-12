@@ -43,8 +43,12 @@ available via the `/env-check` page):
    ```bash
    # Copy contents of schema.sql into Supabase SQL Editor
    ```
-3. This creates all necessary tables and Row Level Security policies
-4. The application will automatically create the private `skin-photos` bucket and an `uploads` folder for user photos
+3. Seed default data:
+   ```bash
+   # Copy contents of seed.sql into Supabase SQL Editor
+   ```
+4. This sets up all tables, Row Level Security policies, and default data
+5. The application will automatically create the private `skin-photos` bucket and an `uploads` folder for user photos
 
 ### 3. Install Dependencies
 
@@ -106,6 +110,7 @@ This saves JSON results next to the image as `img_001.jpg.insightface.json` and 
 ├── database.py        # Supabase database operations
 ├── openai_service.py  # OpenAI GPT-4 integration
 ├── schema.sql         # Database schema and RLS policies
+├── seed.sql           # Default products, triggers, and conditions
 ├── requirements.txt   # Python dependencies
 └── .env              # Environment variables
 ```
