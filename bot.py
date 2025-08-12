@@ -605,16 +605,29 @@ Track consistently for best results! 🌟
             # Upload to Supabase storage and get local temp path and image id
             photo_url, temp_path, image_id = await self.database.save_photo(user_id, file)
 
+            async def process_and_cleanup():
+                try:
+                    await asyncio.to_thread(
+                        process_skin_image,
+                        temp_path,
+                        str(user_id),
+                        image_id,
+                        self.database.client,
+                    )
+                finally:
+                    try:
+                        os.unlink(temp_path)
+                        logger.info("[%s] Temporary file deleted: %s", user_id, temp_path)
+                    except Exception as cleanup_error:
+                        logger.warning(
+                            "[%s] Could not delete temp file %s: %s",
+                            user_id,
+                            temp_path,
+                            cleanup_error,
+                        )
+
             # Offload processing to a background task
-            asyncio.create_task(
-                asyncio.to_thread(
-                    process_skin_image,
-                    temp_path,
-                    str(user_id),
-                    image_id,
-                    self.database.client,
-                )
-            )
+            asyncio.create_task(process_and_cleanup())
 
 
             # Save photo log without AI analysis

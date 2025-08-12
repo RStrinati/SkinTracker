@@ -71,12 +71,15 @@ class FakeClient:
     storage = FakeStorage()
 
 
-def test_temp_file_removed():
+def test_temp_file_retained_until_cleanup():
     client = FakeClient()
     service = StorageService(client)
     file = FakeFile()
 
-    public_url, image_id = asyncio.run(service.save_photo(123, file))
+    public_url, temp_path, image_id = asyncio.run(service.save_photo(123, file))
 
     assert public_url == f"https://example.com/uploads/123/{image_id}.jpg"
-    assert not os.path.exists(file.downloaded_path)
+    assert temp_path == file.downloaded_path
+    assert os.path.exists(temp_path)
+    os.unlink(temp_path)
+    assert not os.path.exists(temp_path)
