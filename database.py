@@ -68,7 +68,9 @@ class Database:
         """Initialize database connection and ensure tables exist."""
         try:
             # Test connection
-            response = self.client.table('users').select('id').limit(1).execute()
+            response = await asyncio.to_thread(
+                self.client.table('users').select('id').limit(1).execute
+            )
             logger.info("Database connection established successfully")
         except Exception as e:
             logger.error(f"Database initialization failed: {e}")
@@ -99,7 +101,9 @@ class Database:
         """
         try:
             # Check if user already exists
-            existing_user = self.client.table('users').select('*').eq('telegram_id', telegram_id).execute()
+            existing_user = await asyncio.to_thread(
+                self.client.table('users').select('*').eq('telegram_id', telegram_id).execute
+            )
 
             if existing_user.data:
                 # Update existing user
@@ -115,7 +119,9 @@ class Database:
                 if reminder_time is not None:
                     user_data['reminder_time'] = reminder_time
 
-                response = self.client.table('users').update(user_data).eq('telegram_id', telegram_id).execute()
+                response = await asyncio.to_thread(
+                    self.client.table('users').update(user_data).eq('telegram_id', telegram_id).execute
+                )
                 logger.info(f"Updated user: {telegram_id}")
                 return response.data[0]
             else:
@@ -131,7 +137,9 @@ class Database:
                     'updated_at': datetime.now(dt_timezone.utc).isoformat()
                 }
                 
-                response = self.client.table('users').insert(user_data).execute()
+                response = await asyncio.to_thread(
+                    self.client.table('users').insert(user_data).execute
+                )
                 logger.info(f"Created new user: {telegram_id}")
                 return response.data[0]
                 
@@ -142,7 +150,9 @@ class Database:
     async def get_user_by_telegram_id(self, telegram_id: int) -> Optional[Dict[str, Any]]:
         """Get user by Telegram ID."""
         try:
-            response = self.client.table('users').select('*').eq('telegram_id', telegram_id).execute()
+            response = await asyncio.to_thread(
+                self.client.table('users').select('*').eq('telegram_id', telegram_id).execute
+            )
             return response.data[0] if response.data else None
         except Exception as e:
             logger.error(f"Error getting user {telegram_id}: {e}")
@@ -160,11 +170,12 @@ class Database:
             if timezone is not None:
                 update_data['timezone'] = timezone
 
-            response = (
-                self.client.table('users')
+            response = await asyncio.to_thread(
+                self.client
+                .table('users')
                 .update(update_data)
                 .eq('telegram_id', telegram_id)
-                .execute()
+                .execute
             )
             logger.info(f"Updated reminder time for user {telegram_id} to {reminder_time}")
             return response.data[0]
@@ -175,10 +186,11 @@ class Database:
     async def get_users_with_reminders(self) -> List[Dict[str, Any]]:
         """Return all users along with their reminder settings."""
         try:
-            response = (
-                self.client.table('users')
+            response = await asyncio.to_thread(
+                self.client
+                .table('users')
                 .select('telegram_id, reminder_time, timezone')
-                .execute()
+                .execute
             )
             return response.data or []
         except Exception as e:
@@ -191,11 +203,12 @@ class Database:
             user = await self.get_user_by_telegram_id(user_id)
             if not user:
                 return []
-            response = (
-                self.client.table('products')
+            response = await asyncio.to_thread(
+                self.client
+                .table('products')
                 .select('*')
                 .or_(f'user_id.eq.{user["id"]},is_global.eq.true')
-                .execute()
+                .execute
             )
             return response.data
         except Exception as e:
@@ -216,7 +229,9 @@ class Database:
                 'type': product_type,
                 'is_global': is_global,
             }
-            response = self.client.table('products').insert(data).execute()
+            response = await asyncio.to_thread(
+                self.client.table('products').insert(data).execute
+            )
             return response.data[0]
         except Exception as e:
             logger.error(f"Error adding product for user {user_id}: {e}")
@@ -228,11 +243,12 @@ class Database:
             user = await self.get_user_by_telegram_id(user_id)
             if not user:
                 return []
-            response = (
-                self.client.table('triggers')
+            response = await asyncio.to_thread(
+                self.client
+                .table('triggers')
                 .select('*')
                 .or_(f'user_id.eq.{user["id"]},is_global.eq.true')
-                .execute()
+                .execute
             )
             return response.data
         except Exception as e:
@@ -253,7 +269,9 @@ class Database:
                 'emoji': emoji,
                 'is_global': is_global,
             }
-            response = self.client.table('triggers').insert(data).execute()
+            response = await asyncio.to_thread(
+                self.client.table('triggers').insert(data).execute
+            )
             return response.data[0]
         except Exception as e:
             logger.error(f"Error adding trigger for user {user_id}: {e}")
@@ -265,11 +283,12 @@ class Database:
             user = await self.get_user_by_telegram_id(user_id)
             if not user:
                 return []
-            response = (
-                self.client.table('conditions')
+            response = await asyncio.to_thread(
+                self.client
+                .table('conditions')
                 .select('*')
                 .eq('user_id', user['id'])
-                .execute()
+                .execute
             )
             return response.data
         except Exception as e:
@@ -287,7 +306,9 @@ class Database:
                 'name': name,
                 'condition_type': condition_type,
             }
-            response = self.client.table('conditions').insert(data).execute()
+            response = await asyncio.to_thread(
+                self.client.table('conditions').insert(data).execute
+            )
             return response.data[0]
         except Exception as e:
             logger.error(f"Error adding condition for user {user_id}: {e}")
@@ -311,7 +332,9 @@ class Database:
                 'logged_at': datetime.now(dt_timezone.utc).isoformat()
             }
 
-            response = self.client.table('product_logs').insert(product_data).execute()
+            response = await asyncio.to_thread(
+                self.client.table('product_logs').insert(product_data).execute
+            )
             logger.info(f"Logged product for user {user_id}: {product_name}")
             return response.data[0]
             
@@ -336,7 +359,9 @@ class Database:
                 'logged_at': datetime.now(dt_timezone.utc).isoformat()
             }
             
-            response = self.client.table('trigger_logs').insert(trigger_data).execute()
+            response = await asyncio.to_thread(
+                self.client.table('trigger_logs').insert(trigger_data).execute
+            )
             logger.info(f"Logged trigger for user {user_id}: {trigger_name}")
             return response.data[0]
             
@@ -362,7 +387,9 @@ class Database:
                 'logged_at': datetime.now(dt_timezone.utc).isoformat(),
             }
 
-            response = self.client.table('symptom_logs').insert(symptom_data).execute()
+            response = await asyncio.to_thread(
+                self.client.table('symptom_logs').insert(symptom_data).execute
+            )
             logger.info(f"Logged symptom for user {user_id}: {symptom_name}")
             return response.data[0]
 
@@ -390,7 +417,9 @@ class Database:
                 'logged_at': datetime.now(dt_timezone.utc).isoformat()
             }
             
-            response = self.client.table('photo_logs').insert(photo_data).execute()
+            response = await asyncio.to_thread(
+                self.client.table('photo_logs').insert(photo_data).execute
+            )
             logger.info(f"Logged photo for user {user_id}")
             return response.data[0]
             
