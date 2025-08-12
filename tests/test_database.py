@@ -3,9 +3,9 @@ import pytest
 from unittest.mock import MagicMock
 
 from database import Database
+import asyncio
 
-@pytest.mark.anyio
-async def test_get_user_logs(monkeypatch):
+def test_get_user_logs(monkeypatch):
     # Prepare fake supabase client
     supabase_client = MagicMock()
     supabase_client.storage = MagicMock()
@@ -41,7 +41,7 @@ async def test_get_user_logs(monkeypatch):
 
     monkeypatch.setattr(db, 'get_user_by_telegram_id', fake_get_user_by_telegram_id)
 
-    logs = await db.get_user_logs(1, days=7)
+    logs = asyncio.run(db.get_user_logs(1, days=7))
 
     assert logs['products'] == table_data['product_logs']
     assert logs['triggers'] == table_data['trigger_logs']
@@ -49,13 +49,7 @@ async def test_get_user_logs(monkeypatch):
     assert logs['photos'] == table_data['photo_logs']
 
 
-@pytest.fixture
-def anyio_backend():
-    return 'asyncio'
-
-
-@pytest.mark.anyio
-async def test_create_user_with_defaults(monkeypatch):
+def test_create_user_with_defaults(monkeypatch):
     supabase_client = MagicMock()
     supabase_client.storage = MagicMock()
     supabase_client.storage.get_bucket.return_value = MagicMock()
@@ -75,13 +69,12 @@ async def test_create_user_with_defaults(monkeypatch):
     monkeypatch.setattr("database.create_client", lambda url, key: supabase_client)
 
     db = Database()
-    result = await db.create_user(telegram_id=1, username="test")
+    result = asyncio.run(db.create_user(telegram_id=1, username="test"))
     assert result["timezone"] == "UTC"
     assert result["reminder_time"] == "09:00"
 
 
-@pytest.mark.anyio
-async def test_add_and_get_conditions(monkeypatch):
+def test_add_and_get_conditions(monkeypatch):
     supabase_client = MagicMock()
     supabase_client.storage = MagicMock()
     supabase_client.storage.get_bucket.return_value = MagicMock()
@@ -106,17 +99,16 @@ async def test_add_and_get_conditions(monkeypatch):
 
     monkeypatch.setattr(db, 'get_user_by_telegram_id', fake_get_user_by_telegram_id)
 
-    result = await db.add_condition(1, 'Acne', 'existing')
+    result = asyncio.run(db.add_condition(1, 'Acne', 'existing'))
     assert result['name'] == 'Acne'
     assert table.insert.called
 
-    conditions = await db.get_conditions(1)
+    conditions = asyncio.run(db.get_conditions(1))
     assert conditions[0]['condition_type'] == 'existing'
     assert table.select.called
 
 
-@pytest.mark.anyio
-async def test_get_users_with_reminders(monkeypatch):
+def test_get_users_with_reminders(monkeypatch):
     supabase_client = MagicMock()
     supabase_client.storage = MagicMock()
     supabase_client.storage.get_bucket.return_value = MagicMock()
@@ -134,5 +126,5 @@ async def test_get_users_with_reminders(monkeypatch):
     monkeypatch.setattr('database.create_client', lambda url, key: supabase_client)
 
     db = Database()
-    users = await db.get_users_with_reminders()
+    users = asyncio.run(db.get_users_with_reminders())
     assert users[0]['telegram_id'] == 1
