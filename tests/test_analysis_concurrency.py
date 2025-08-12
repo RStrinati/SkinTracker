@@ -24,9 +24,9 @@ async def test_analyze_face_heavy_concurrent(monkeypatch):
     def fake_upload(bucket: str, key: str, data: dict) -> None:
         return None
 
-    monkeypatch.setattr("api.routers.analysis.download_from_bucket", fake_download)
+    monkeypatch.setattr("api.routers.analysis.supabase.download_from_bucket", fake_download)
     monkeypatch.setattr("api.routers.analysis._provider.analyze", fake_analyze)
-    monkeypatch.setattr("api.routers.analysis.upload_json_to_bucket", fake_upload)
+    monkeypatch.setattr("api.routers.analysis.supabase.upload_json_to_bucket", fake_upload)
 
     async with AsyncClient(app=app, base_url="http://test") as client:
         async def call():

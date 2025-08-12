@@ -6,7 +6,10 @@ from typing import Optional
 from fastapi import APIRouter, HTTPException
 from pydantic import BaseModel
 
-from skin_analysis import process_skin_image
+
+from analysis_providers.insightface_provider import InsightFaceProvider
+from services.supabase import supabase
+
 
 router = APIRouter(prefix="/analysis")
 
@@ -42,8 +45,9 @@ async def analyze_face_heavy(req: FaceHeavyRequest):
             _provider = InsightFaceProvider()
 
         image_path = await asyncio.to_thread(
-            download_from_bucket, req.bucket, req.object_path
+            supabase.download_from_bucket, req.bucket, req.object_path
         )
+
         kpi = await asyncio.to_thread(
             process_skin_image,
             str(image_path),
@@ -55,5 +59,6 @@ async def analyze_face_heavy(req: FaceHeavyRequest):
         result_key = f"{req.object_path}.analysis.json"
         upload_json_to_bucket(req.bucket, result_key, kpi or {"face_detected": False})
         return {"ok": True, "result_key": result_key, "face_detected": kpi is not None}
+
     except Exception as exc:  # pragma: no cover - network/IO errors
         raise HTTPException(status_code=500, detail=str(exc)) from exc

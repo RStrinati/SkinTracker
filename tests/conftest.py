@@ -33,3 +33,12 @@ sys.modules.setdefault(
     ),
 )
 sys.modules.setdefault("openai", types.SimpleNamespace(AsyncOpenAI=object))
+sys.modules.setdefault("cv2", types.SimpleNamespace(CV_8U=0, CV_16U=0, CV_32S=0))
+class _DummyProvider:
+    def analyze(self, *args, **kwargs):
+        return {}
+
+sys.modules.setdefault(
+    "analysis_providers.insightface_provider",
+    types.SimpleNamespace(InsightFaceProvider=_DummyProvider),
+)

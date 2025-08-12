@@ -5,7 +5,12 @@ from database import Database
 
 @pytest.mark.anyio
 async def test_database_connection_failure(monkeypatch):
-    monkeypatch.setattr('database.create_client', lambda url, key: None)
+    supabase_client = MagicMock()
+    supabase_client.storage = MagicMock()
+    supabase_client.storage.get_bucket.return_value = MagicMock()
+    supabase_client.table.side_effect = Exception("boom")
+
+    monkeypatch.setattr('services.supabase.supabase.client', supabase_client)
 
     db = Database()
     with pytest.raises(Exception):
@@ -20,7 +25,7 @@ async def test_create_user_duplicate_id(monkeypatch):
     table.eq.return_value = table
     table.execute.return_value = MagicMock(data=[{"id": 1}])  # Simulate existing user
 
-    monkeypatch.setattr('database.create_client', lambda url, key: supabase_client)
+    monkeypatch.setattr('services.supabase.supabase.client', supabase_client)
 
     db = Database()
     with pytest.raises(Exception):
