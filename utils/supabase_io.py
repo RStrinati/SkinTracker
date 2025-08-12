@@ -6,19 +6,20 @@ from pathlib import Path
 from typing import Any, Dict
 
 from supabase import Client, create_client
+from dotenv import load_dotenv
+import os
 
-from env import get_settings
+load_dotenv()
 
 _client: Client | None = None
 
 
 def _get_client() -> Client:
-    settings = get_settings()
     global _client
     if _client is None:
-        _client = create_client(
-            settings.NEXT_PUBLIC_SUPABASE_URL, settings.SUPABASE_SERVICE_ROLE_KEY
-        )
+        url = os.getenv("NEXT_PUBLIC_SUPABASE_URL")
+        key = os.getenv("SUPABASE_SERVICE_ROLE_KEY")
+        _client = create_client(url, key)
     return _client
 
 

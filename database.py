@@ -7,18 +7,20 @@ from typing import Dict, List, Optional, Any
 from supabase import create_client, Client
 from telegram import File
 
+from dotenv import load_dotenv
 from services.storage import StorageService
-from env import get_settings
+
+# Load environment variables from .env file
+load_dotenv()
 
 # Configure logging
 logger = logging.getLogger(__name__)
 
 class Database:
     def __init__(self):
-        settings = get_settings()
-        self.supabase_url = settings.NEXT_PUBLIC_SUPABASE_URL
-        self.service_role_key = settings.SUPABASE_SERVICE_ROLE_KEY
-        self.anon_key = settings.NEXT_PUBLIC_SUPABASE_ANON_KEY
+        self.supabase_url = os.getenv("NEXT_PUBLIC_SUPABASE_URL")
+        self.service_role_key = os.getenv("SUPABASE_SERVICE_ROLE_KEY")
+        self.anon_key = os.getenv("NEXT_PUBLIC_SUPABASE_ANON_KEY")
 
         # Use service role key if available, otherwise anon key
         self.supabase_key = self.service_role_key or self.anon_key
