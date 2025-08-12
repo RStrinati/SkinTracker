@@ -397,7 +397,7 @@ class Database:
             logger.error(f"Error logging symptom for user {user_id}: {e}")
             raise
 
-    async def save_photo(self, user_id: int, file: File) -> tuple[str, str]:
+    async def save_photo(self, user_id: int, file: File) -> tuple[str, str, str]:
         """Delegate photo saving to the storage service."""
         return await self.storage.save_photo(user_id, file)
 
