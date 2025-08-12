@@ -8,10 +8,10 @@ import numpy as np
 import onnxruntime as ort  # type: ignore
 from insightface.app import FaceAnalysis
 
-from .base import AnalysisProvider
+from .base import FaceAnalysisProvider
 
 
-class InsightFaceProvider(AnalysisProvider):
+class InsightFaceProvider(FaceAnalysisProvider):
     """InsightFace implementation using the ``buffalo_l`` model."""
 
     def __init__(self) -> None:

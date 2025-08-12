@@ -14,6 +14,8 @@ from telegram.constants import ParseMode
 from database import Database
 from openai_service import OpenAIService
 from reminder_scheduler import ReminderScheduler
+from analysis_providers.insightface_provider import InsightFaceProvider
+from skin_analysis import process_skin_image
 
 # Load environment variables from .env file
 load_dotenv()
@@ -31,6 +33,7 @@ class SkinHealthBot:
         self.database = Database()
         self.openai_service = OpenAIService()
         self.scheduler: Optional[ReminderScheduler] = None
+        self.analysis_provider = InsightFaceProvider()
 
         # Default fallback options if database tables are empty
         self.default_products = [
@@ -627,7 +630,16 @@ Track consistently for best results! 🌟
                         )
 
             # Offload processing to a background task
-            asyncio.create_task(process_and_cleanup())
+            asyncio.create_task(
+                asyncio.to_thread(
+                    process_skin_image,
+                    temp_path,
+                    str(user_id),
+                    image_id,
+                    self.database.client,
+                    self.analysis_provider,
+                )
+            )
 
 
             # Save photo log without AI analysis
