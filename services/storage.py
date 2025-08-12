@@ -9,13 +9,17 @@ from PIL import Image
 from supabase import Client
 from telegram import File
 
+from services.supabase import supabase
+
 logger = logging.getLogger(__name__)
+
 
 class StorageService:
     """Service layer for interacting with Supabase storage."""
 
-    def __init__(self, client: Client):
-        self.client = client
+    def __init__(self, client: Client | None = None):
+        # Allow injection of a client for testing; fall back to shared service.
+        self.client = client or supabase.client
 
     async def save_photo(self, user_id: int, file: File) -> Tuple[str, str]:
         """Save a Telegram photo to Supabase storage.

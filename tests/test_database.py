@@ -29,10 +29,8 @@ def test_get_user_logs(monkeypatch):
     table_mocks = {name: make_table_mock(data) for name, data in table_data.items()}
     supabase_client.table.side_effect = lambda name: table_mocks[name]
 
-    # Patch environment and create_client
-    monkeypatch.setenv('NEXT_PUBLIC_SUPABASE_URL', 'url')
-    monkeypatch.setenv('NEXT_PUBLIC_SUPABASE_ANON_KEY', 'key')
-    monkeypatch.setattr('database.create_client', lambda url, key: supabase_client)
+    # Patch shared supabase client
+    monkeypatch.setattr('services.supabase.supabase.client', supabase_client)
 
     db = Database()
 
@@ -64,9 +62,7 @@ def test_create_user_with_defaults(monkeypatch):
         MagicMock(data=[{"id": 1, "timezone": "UTC", "reminder_time": "09:00"}]),
     ]
 
-    monkeypatch.setenv("NEXT_PUBLIC_SUPABASE_URL", "url")
-    monkeypatch.setenv("NEXT_PUBLIC_SUPABASE_ANON_KEY", "key")
-    monkeypatch.setattr("database.create_client", lambda url, key: supabase_client)
+    monkeypatch.setattr('services.supabase.supabase.client', supabase_client)
 
     db = Database()
     result = asyncio.run(db.create_user(telegram_id=1, username="test"))
@@ -88,9 +84,7 @@ def test_add_and_get_conditions(monkeypatch):
         MagicMock(data=[{"id": 1, "name": "Acne", "condition_type": "existing"}]),
     ]
 
-    monkeypatch.setenv('NEXT_PUBLIC_SUPABASE_URL', 'url')
-    monkeypatch.setenv('NEXT_PUBLIC_SUPABASE_ANON_KEY', 'key')
-    monkeypatch.setattr('database.create_client', lambda url, key: supabase_client)
+    monkeypatch.setattr('services.supabase.supabase.client', supabase_client)
 
     db = Database()
 
@@ -121,9 +115,7 @@ def test_get_users_with_reminders(monkeypatch):
         'timezone': 'UTC'
     }])
 
-    monkeypatch.setenv('NEXT_PUBLIC_SUPABASE_URL', 'url')
-    monkeypatch.setenv('NEXT_PUBLIC_SUPABASE_ANON_KEY', 'key')
-    monkeypatch.setattr('database.create_client', lambda url, key: supabase_client)
+    monkeypatch.setattr('services.supabase.supabase.client', supabase_client)
 
     db = Database()
     users = asyncio.run(db.get_users_with_reminders())

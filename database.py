@@ -4,11 +4,11 @@ import logging
 from datetime import datetime, timedelta, timezone as dt_timezone
 from typing import Dict, List, Optional, Any
 
-from supabase import create_client, Client
 from telegram import File
 
 from dotenv import load_dotenv
 from services.storage import StorageService
+from services.supabase import supabase
 
 # Load environment variables from .env file
 load_dotenv()
@@ -18,13 +18,8 @@ logger = logging.getLogger(__name__)
 
 class Database:
     def __init__(self):
-        self.supabase_url = os.getenv("NEXT_PUBLIC_SUPABASE_URL")
         self.service_role_key = os.getenv("SUPABASE_SERVICE_ROLE_KEY")
-        self.anon_key = os.getenv("NEXT_PUBLIC_SUPABASE_ANON_KEY")
-
-        # Use service role key if available, otherwise anon key
-        self.supabase_key = self.service_role_key or self.anon_key
-        self.client: Client = create_client(self.supabase_url, self.supabase_key)
+        self.client = supabase.client
 
         # Service layer instances
         self.storage = StorageService(self.client)
