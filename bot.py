@@ -10,7 +10,6 @@ from dotenv import load_dotenv
 from telegram import Update, InlineKeyboardButton, InlineKeyboardMarkup, Bot, BotCommand
 from telegram.ext import Application, CommandHandler, CallbackQueryHandler, MessageHandler, filters
 from telegram.constants import ParseMode
-from fastapi import BackgroundTasks
 
 from database import Database
 from openai_service import OpenAIService
@@ -602,8 +601,21 @@ Track consistently for best results! 🌟
             # Get file info
             file = await context.bot.get_file(photo.file_id)
 
-            # Upload to Supabase storage and get image id
-            photo_url, image_id = await self.database.save_photo(user_id, file)
+
+            # Upload to Supabase storage and get local temp path and image id
+            photo_url, temp_path, image_id = await self.database.save_photo(user_id, file)
+
+            # Offload processing to a background task
+            asyncio.create_task(
+                asyncio.to_thread(
+                    process_skin_image,
+                    temp_path,
+                    str(user_id),
+                    image_id,
+                    self.database.client,
+                )
+            )
+
 
             # Save photo log without AI analysis
             await self.database.log_photo(user_id, photo_url)
