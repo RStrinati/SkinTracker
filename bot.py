@@ -10,7 +10,6 @@ from dotenv import load_dotenv
 from telegram import Update, InlineKeyboardButton, InlineKeyboardMarkup, Bot, BotCommand
 from telegram.ext import Application, CommandHandler, CallbackQueryHandler, MessageHandler, filters
 from telegram.constants import ParseMode
-from fastapi import BackgroundTasks
 
 from database import Database
 from openai_service import OpenAIService
@@ -607,12 +606,14 @@ Track consistently for best results! 🌟
             photo_url, temp_path, image_id = await self.database.save_photo(user_id, file)
 
             # Offload processing to a background task
-            background_tasks.add_task(
-                process_skin_image,
-                temp_path,
-                str(user_id),
-                image_id,
-                self.database.client,
+            asyncio.create_task(
+                asyncio.to_thread(
+                    process_skin_image,
+                    temp_path,
+                    str(user_id),
+                    image_id,
+                    self.database.client,
+                )
             )
 
             # Save photo log without AI analysis
