@@ -12,6 +12,7 @@ import json
 
 from bot import SkinHealthBot
 from env import get_settings
+from api.routers.analysis import router as analysis_router
 
 # Structured logging setup
 class JsonFormatter(logging.Formatter):
@@ -35,6 +36,7 @@ settings = get_settings()
 
 app = FastAPI(title="Skin Health Tracker Bot", version="1.0.0")
 api_router = APIRouter(prefix="/api/v1")
+api_router.include_router(analysis_router)
 
 bot = SkinHealthBot()
 
