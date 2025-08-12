@@ -7,8 +7,7 @@ from fastapi import APIRouter, HTTPException
 from pydantic import BaseModel
 
 from analysis_providers.insightface_provider import InsightFaceProvider
-from utils.db import upsert_face_embeddings
-from utils.supabase_io import download_from_bucket, upload_json_to_bucket
+from services.supabase import supabase
 
 router = APIRouter(prefix="/analysis")
 
@@ -28,14 +27,17 @@ async def analyze_face_heavy(req: FaceHeavyRequest):
     # TODO: Consider moving this analysis workflow into a worker queue if latency is high.
     try:
         image_path = await asyncio.to_thread(
-            download_from_bucket, req.bucket, req.object_path
+            supabase.download_from_bucket, req.bucket, req.object_path
         )
         result = await asyncio.to_thread(_provider.analyze, image_path)
         result_key = f"{req.object_path}.insightface.json"
-        upload_json_to_bucket(req.bucket, result_key, result)
+        supabase.upload_json_to_bucket(req.bucket, result_key, result)
         if req.user_id:
             await asyncio.to_thread(
-                upsert_face_embeddings, req.user_id, req.object_path, result["faces"]
+                supabase.upsert_face_embeddings,
+                req.user_id,
+                req.object_path,
+                result["faces"],
             )
         return {"ok": True, "result_key": result_key, "faces": result["face_count"]}
     except Exception as exc:  # pragma: no cover - network/IO errors
