@@ -184,12 +184,26 @@ def process_skin_image(
         "overlay_image_path": str(overlay_image_path),
     }
 
+    temp_paths = [face_image_path, blemish_image_path, overlay_image_path]
     if client:
         bucket = client.storage.from_("skin-photos")
-        for local_path in [face_image_path, blemish_image_path, overlay_image_path]:
-            with open(local_path, "rb") as f:
-                bucket.upload(local_path.name, f, {'content-type': 'image/png'})
-        client.table("skin_kpis").insert(record).execute()
+        try:
+            for local_path in temp_paths:
+                with open(local_path, "rb") as f:
+                    bucket.upload(local_path.name, f, {"content-type": "image/png"})
+            client.table("skin_kpis").insert(record).execute()
+        finally:
+            for local_path in temp_paths:
+                try:
+                    local_path.unlink()
+                except FileNotFoundError:
+                    pass
+    else:
+        for local_path in temp_paths:
+            try:
+                local_path.unlink()
+            except FileNotFoundError:
+                pass
 
     return record
 
