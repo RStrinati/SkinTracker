@@ -21,11 +21,12 @@ class StorageService:
         # Allow injection of a client for testing; fall back to shared service.
         self.client = client or supabase.client
 
-    async def save_photo(self, user_id: int, file: File) -> Tuple[str, str]:
+    async def save_photo(self, user_id: int, file: File) -> Tuple[str, str, str]:
         """Save a Telegram photo to Supabase storage.
 
-        Returns the public URL and generated image ID. Temporary files are
-        cleaned up automatically.
+        Returns the public URL, path to the downloaded temporary file, and
+        generated image ID. The caller is responsible for cleaning up the
+        temporary file after any additional processing.
         """
         file_extension = file.file_path.split('.')[-1] if '.' in file.file_path else 'jpg'
         image_id = uuid.uuid4().hex
@@ -84,11 +85,6 @@ class StorageService:
 
         public_url = await asyncio.to_thread(bucket.get_public_url, filename)
         logger.info("[%s] Public URL generated: %s", user_id, public_url)
+        logger.info("[%s] Temporary file retained for processing: %s", user_id, temp_path)
 
-        try:
-            os.unlink(temp_path)
-            logger.info("[%s] Temporary file deleted: %s", user_id, temp_path)
-        except Exception as cleanup_error:
-            logger.warning("[%s] Could not delete temp file %s: %s", user_id, temp_path, cleanup_error)
-
-        return public_url, image_id
+        return public_url, temp_path, image_id
