@@ -3,10 +3,16 @@ from __future__ import annotations
 from pathlib import Path
 from typing import Any, Dict, List
 
-import cv2  # type: ignore
-import numpy as np
-import onnxruntime as ort  # type: ignore
-from insightface.app import FaceAnalysis
+try:  # pragma: no cover - heavy deps may be missing
+    import cv2  # type: ignore
+    import numpy as np
+    import onnxruntime as ort  # type: ignore
+    from insightface.app import FaceAnalysis
+except Exception:  # pragma: no cover
+    cv2 = None  # type: ignore
+    np = None  # type: ignore
+    ort = None  # type: ignore
+    FaceAnalysis = None  # type: ignore
 
 from .base import AnalysisProvider
 
@@ -15,6 +21,9 @@ class InsightFaceProvider(AnalysisProvider):
     """InsightFace implementation using the ``buffalo_l`` model."""
 
     def __init__(self) -> None:
+        if cv2 is None or np is None or ort is None or FaceAnalysis is None:
+            raise RuntimeError("InsightFace dependencies are not installed")
+
         providers = (
             ["CUDAExecutionProvider"]
             if "CUDAExecutionProvider" in ort.get_available_providers()

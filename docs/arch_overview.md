@@ -30,7 +30,7 @@ flowchart LR
 ## Gaps & Tech Debt
 - `server.py` serves all routes directly; no modular routers or versioned API.
 - Image processing runs synchronously inside the Telegram handler; no background tasks.
-- Data model lacks dedicated `images`, `face_landmarks`, or `lesions` tables; `skin_kpis` table not defined in migrations.
+- Data model lacks dedicated `images`, `face_landmarks`, or `lesions` tables.
 - Supabase access uses raw client calls; no ORM or Alembic migrations.
 - Minimal test coverage around image processing and storage helpers.
 

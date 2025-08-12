@@ -96,6 +96,22 @@ CREATE TABLE IF NOT EXISTS photo_logs (
     updated_at TIMESTAMP WITH TIME ZONE DEFAULT NOW()
 );
 
+-- Skin KPIs table to store analysis results
+CREATE TABLE IF NOT EXISTS skin_kpis (
+    id UUID PRIMARY KEY DEFAULT uuid_generate_v4(),
+    user_id UUID NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+    image_id TEXT NOT NULL,
+    timestamp TIMESTAMP WITH TIME ZONE DEFAULT NOW(),
+    face_area_px INTEGER,
+    blemish_area_px INTEGER,
+    percent_blemished REAL,
+    face_image_path TEXT,
+    blemish_image_path TEXT,
+    overlay_image_path TEXT,
+    created_at TIMESTAMP WITH TIME ZONE DEFAULT NOW(),
+    updated_at TIMESTAMP WITH TIME ZONE DEFAULT NOW()
+);
+
 -- Face embeddings table to enable face similarity search
 CREATE TABLE IF NOT EXISTS face_embeddings (
     id UUID PRIMARY KEY DEFAULT uuid_generate_v4(),
@@ -124,6 +140,8 @@ CREATE INDEX IF NOT EXISTS idx_symptom_logs_user_id ON symptom_logs(user_id);
 CREATE INDEX IF NOT EXISTS idx_symptom_logs_logged_at ON symptom_logs(logged_at);
 CREATE INDEX IF NOT EXISTS idx_photo_logs_user_id ON photo_logs(user_id);
 CREATE INDEX IF NOT EXISTS idx_photo_logs_logged_at ON photo_logs(logged_at);
+CREATE INDEX IF NOT EXISTS idx_skin_kpis_user_id ON skin_kpis(user_id);
+CREATE INDEX IF NOT EXISTS idx_skin_kpis_timestamp ON skin_kpis(timestamp);
 CREATE INDEX IF NOT EXISTS idx_users_username ON users(username);
 CREATE INDEX IF NOT EXISTS idx_products_name ON products(name);
 CREATE INDEX IF NOT EXISTS idx_triggers_name ON triggers(name);
@@ -138,6 +156,7 @@ ALTER TABLE conditions ENABLE ROW LEVEL SECURITY;
 ALTER TABLE trigger_logs ENABLE ROW LEVEL SECURITY;
 ALTER TABLE symptom_logs ENABLE ROW LEVEL SECURITY;
 ALTER TABLE photo_logs ENABLE ROW LEVEL SECURITY;
+ALTER TABLE skin_kpis ENABLE ROW LEVEL SECURITY;
 ALTER TABLE face_embeddings ENABLE ROW LEVEL SECURITY;
 
 -- RLS Policies for users table
@@ -298,6 +317,27 @@ CREATE POLICY "Users can delete own photo logs" ON photo_logs
         SELECT id FROM users WHERE telegram_id = current_setting('request.telegram_id')::bigint
     ));
 
+-- RLS Policies for skin_kpis table
+CREATE POLICY "Users can view own skin kpis" ON skin_kpis
+    FOR SELECT USING (user_id IN (
+        SELECT id FROM users WHERE telegram_id = current_setting('request.telegram_id')::bigint
+    ));
+
+CREATE POLICY "Users can insert own skin kpis" ON skin_kpis
+    FOR INSERT WITH CHECK (user_id IN (
+        SELECT id FROM users WHERE telegram_id = current_setting('request.telegram_id')::bigint
+    ));
+
+CREATE POLICY "Users can update own skin kpis" ON skin_kpis
+    FOR UPDATE USING (user_id IN (
+        SELECT id FROM users WHERE telegram_id = current_setting('request.telegram_id')::bigint
+    ));
+
+CREATE POLICY "Users can delete own skin kpis" ON skin_kpis
+    FOR DELETE USING (user_id IN (
+        SELECT id FROM users WHERE telegram_id = current_setting('request.telegram_id')::bigint
+    ));
+
 -- Create storage bucket for skin photos
 INSERT INTO storage.buckets (id, name, public, file_size_limit, allowed_mime_types)
 VALUES (
@@ -364,6 +404,9 @@ CREATE TRIGGER update_symptom_logs_updated_at BEFORE UPDATE ON symptom_logs
 CREATE TRIGGER update_photo_logs_updated_at BEFORE UPDATE ON photo_logs
     FOR EACH ROW EXECUTE FUNCTION update_updated_at_column();
 
+CREATE TRIGGER update_skin_kpis_updated_at BEFORE UPDATE ON skin_kpis
+    FOR EACH ROW EXECUTE FUNCTION update_updated_at_column();
+
 -- Sample data for testing (optional - remove in production)
 -- INSERT INTO users (telegram_id, username, first_name, last_name)
 -- VALUES (123456789, 'testuser', 'Test', 'User')
@@ -377,6 +420,7 @@ COMMENT ON TABLE product_logs IS 'Tracks skincare products used by users with ti
 COMMENT ON TABLE trigger_logs IS 'Records skin irritation triggers experienced by users';
 COMMENT ON TABLE symptom_logs IS 'Stores symptom severity ratings on a 1-5 scale';
 COMMENT ON TABLE photo_logs IS 'Contains skin photos with AI analysis and metadata';
+COMMENT ON TABLE skin_kpis IS 'Stores skin analysis metrics for each uploaded image';
 COMMENT ON TABLE face_embeddings IS 'Face embeddings and metadata for similarity search';
 
 COMMENT ON COLUMN symptom_logs.severity IS 'Severity rating from 1 (very mild) to 5 (very severe)';
