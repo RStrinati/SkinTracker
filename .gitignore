@@ -4,8 +4,11 @@ node_modules/
 
 # Python artifacts
 __pycache__/
-.venv/
 *.pyc
+*.pyd
+*.pyo
+.venv/
+venv/
 
 # Environment files
 .env
@@ -25,27 +28,12 @@ __pycache__/
 dist/
 build/
 *.egg-info/
-venv/
-__pycache__/
-*.pyc
-.env
-*.pyd
+
+# Compiled binaries
 *.dll
 *.so
-.DS_Store
-.vscode/
-.idea/
-venv/
-__pycache__/
-*.pyc
-.env
-*.pyd
-*.dll
-*.so
-venv/
-__pycache__/
-*.pyc
-.env
-*.dll
-*.pyd
-*.so
+
+# Runtime artifacts
+*.db
+auth_sessions.db
+ngrok_recovery_codes.txt
