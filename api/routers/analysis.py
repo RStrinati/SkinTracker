@@ -25,9 +25,12 @@ _provider = InsightFaceProvider()
 @router.post("/face/heavy")
 async def analyze_face_heavy(req: FaceHeavyRequest):
     """Run heavy face analysis on an image stored in Supabase."""
+    # TODO: Consider moving this analysis workflow into a worker queue if latency is high.
     try:
-        image_path = download_from_bucket(req.bucket, req.object_path)
-        result = _provider.analyze(image_path)
+        image_path = await asyncio.to_thread(
+            download_from_bucket, req.bucket, req.object_path
+        )
+        result = await asyncio.to_thread(_provider.analyze, image_path)
         result_key = f"{req.object_path}.insightface.json"
         upload_json_to_bucket(req.bucket, result_key, result)
         if req.user_id:
