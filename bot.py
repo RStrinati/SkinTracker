@@ -6,6 +6,7 @@ from typing import Dict, List, Optional
 import json
 import traceback
 
+from dotenv import load_dotenv
 from telegram import Update, InlineKeyboardButton, InlineKeyboardMarkup, Bot, BotCommand
 from telegram.ext import Application, CommandHandler, CallbackQueryHandler, MessageHandler, filters
 from telegram.constants import ParseMode
@@ -15,6 +16,9 @@ from database import Database
 from openai_service import OpenAIService
 from reminder_scheduler import ReminderScheduler
 from skin_analysis import process_skin_image
+
+# Load environment variables from .env file
+load_dotenv()
 
 logger = logging.getLogger(__name__)
 

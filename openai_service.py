@@ -4,7 +4,11 @@ from typing import Dict, List, Any, Optional
 from datetime import datetime
 import json
 
+from dotenv import load_dotenv
 from openai import AsyncOpenAI
+
+# Load environment variables from .env file
+load_dotenv()
 
 # Configure logging
 logger = logging.getLogger(__name__)
