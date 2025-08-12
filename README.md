@@ -8,6 +8,7 @@ A Python-based Telegram bot that helps users track their skin health journey wit
 - **User-friendly commands**: `/start`, `/log`, `/summary`, `/help`
 - **Interactive keyboards**: Tap buttons to log products, triggers, and symptoms
 - **Photo uploads**: Upload skin photos with AI analysis
+- **InsightFace embeddings**: Robust face detection and 512-D embeddings for re-identification
 - **Personalized insights**: Weekly summaries powered by GPT-4
 
 ### 📊 Comprehensive Tracking
@@ -68,6 +69,20 @@ uvicorn server:app --host 0.0.0.0 --port 8000
 # Set webhook URL for your bot
 curl -X POST http://localhost:8000/set-webhook
 ```
+
+### 6. Heavy Face Analysis (InsightFace)
+
+1. Ensure `face_embeddings` table exists in your database (see `schema.sql`).
+2. Upload a test image to your Supabase storage bucket.
+3. Call the analysis endpoint:
+
+```bash
+curl -X POST http://localhost:8000/api/v1/analysis/face/heavy \
+  -H "Content-Type: application/json" \
+  -d '{"bucket":"skin-photos","object_path":"users/123/2025-08-12/img_001.jpg"}'
+```
+
+This saves JSON results next to the image as `img_001.jpg.insightface.json` and returns the number of faces detected.
 
 ## 🏗️ Architecture
 
