@@ -25,6 +25,9 @@ class OpenAIService:
     async def generate_summary(self, user_logs: Dict[str, List[Dict[str, Any]]]) -> str:
         """Generate a weekly summary of user's skin health progress."""
         try:
+            logger.info(f"Generating summary for logs: {json.dumps(user_logs, default=str)}")
+            if not user_logs:
+                return "No data available for summary. Start logging your skin health data to get insights!"
             # Prepare data for analysis
             summary_data = self._prepare_logs_for_analysis(user_logs)
             

@@ -16,6 +16,7 @@ except Exception:  # pragma: no cover - handled gracefully
 from supabase import Client
 
 from analysis_providers.base import FaceAnalysisProvider
+from services.local_storage import LocalStorageService
 
 
 def align_face(image: np.ndarray, bbox: np.ndarray, landmarks: np.ndarray):
@@ -44,12 +45,35 @@ def align_face(image: np.ndarray, bbox: np.ndarray, landmarks: np.ndarray):
 
 
 def detect_blemishes(normalized: np.ndarray, face_mask: np.ndarray):
-    """Detect blemishes and compute statistics."""
-    gray = cv2.cvtColor(normalized, cv2.COLOR_BGR2GRAY)
+    """Detect blemishes and compute statistics using advanced preprocessing."""
+    # Convert to LAB color space for better skin analysis
+    lab = cv2.cvtColor(normalized, cv2.COLOR_BGR2LAB)
+    l_channel, a_channel, b_channel = cv2.split(lab)
+    
+    # Apply CLAHE (Contrast Limited Adaptive Histogram Equalization)
+    clahe = cv2.createCLAHE(clipLimit=2.0, tileGridSize=(8,8))
+    l_channel = clahe.apply(l_channel)
+    
+    # Reconstruct the image
+    lab = cv2.merge([l_channel, a_channel, b_channel])
+    enhanced = cv2.cvtColor(lab, cv2.COLOR_LAB2BGR)
+    
+    # Convert to grayscale
+    gray = cv2.cvtColor(enhanced, cv2.COLOR_BGR2GRAY)
     masked_gray = cv2.bitwise_and(gray, face_mask)
+    
+    # Apply local contrast enhancement
     blurred = cv2.GaussianBlur(masked_gray, (7, 7), 0)
-    _, thresh = cv2.threshold(
-        blurred, 0, 255, cv2.THRESH_BINARY_INV + cv2.THRESH_OTSU
+    detail = cv2.addWeighted(masked_gray, 1.5, blurred, -0.5, 0)
+    
+    # Use adaptive thresholding instead of global
+    thresh = cv2.adaptiveThreshold(
+        detail,
+        255,
+        cv2.ADAPTIVE_THRESH_GAUSSIAN_C,
+        cv2.THRESH_BINARY_INV,
+        11,  # Block size
+        2    # C constant for threshold
     )
     thresh = cv2.bitwise_and(thresh, face_mask)
 
@@ -84,13 +108,24 @@ def process_skin_image(
 
     if provider is None:
         from analysis_providers.insightface_provider import InsightFaceProvider
-
         provider = InsightFaceProvider()
 
     img_path = Path(image_path)
     image = cv2.imread(str(img_path))
+    
     if image is None:
         raise FileNotFoundError(f"Image not found: {image_path}")
+        
+    # Validate image dimensions and content
+    if image.size == 0:
+        raise ValueError("Image is empty")
+        
+    if len(image.shape) != 3:
+        raise ValueError("Image must be a color image")
+        
+    height, width = image.shape[:2]
+    if width < 100 or height < 100:
+        raise ValueError(f"Image too small: {width}x{height}. Minimum size is 100x100 pixels")
 
     analysis = provider.analyze(img_path)
     if analysis.get("face_count", 0) == 0:
@@ -135,12 +170,23 @@ def process_skin_image(
         "overlay_image_path": str(overlay_image_path),
     }
 
+    # Always store locally first
+    local_storage = LocalStorageService()
+    local_storage.store_analysis(record, analysis)
+
+    # Upload to Supabase if client is available
     if client:
-        bucket = client.storage.from_("skin-photos")
-        for local_path in [face_image_path, blemish_image_path, overlay_image_path]:
-            with open(local_path, "rb") as f:
-                bucket.upload(local_path.name, f, {"content-type": "image/png"})
-        client.table("skin_kpis").insert(record).execute()
+        try:
+            bucket = client.storage.from_("skin-photos")
+            for local_path in [face_image_path, blemish_image_path, overlay_image_path]:
+                with open(local_path, "rb") as f:
+                    bucket.upload(local_path.name, f, {"content-type": "image/png"})
+            client.table("skin_kpis").insert(record).execute()
+            # Mark as synced after successful upload
+            local_storage.mark_synced(record["user_id"], record["image_id"])
+        except Exception as e:
+            # Log error but continue - data is safe in local storage
+            print(f"Failed to sync to cloud: {e}")
 
     return record
 

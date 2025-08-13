@@ -16,6 +16,9 @@ from openai_service import OpenAIService
 from reminder_scheduler import ReminderScheduler
 from analysis_providers.insightface_provider import InsightFaceProvider
 from skin_analysis import process_skin_image
+from services.local_storage import LocalStorageService
+from services.local_summarizer import LocalAnalysisSummarizer
+from services.message_queue import MessageQueueService
 
 # Load environment variables from .env file
 load_dotenv()
@@ -34,6 +37,9 @@ class SkinHealthBot:
         self.openai_service = OpenAIService()
         self.scheduler: Optional[ReminderScheduler] = None
         self.analysis_provider = InsightFaceProvider()
+        self.local_storage = LocalStorageService()
+        self.local_summarizer = LocalAnalysisSummarizer()
+        self.message_queue = MessageQueueService()
 
         # Default fallback options if database tables are empty
         self.default_products = [
@@ -253,13 +259,40 @@ Ready to start your skin health journey? Use /log to begin! ✨
                 await self.send_main_menu(update)
                 return
 
-            # Generate AI summary
-            summary = await self.openai_service.generate_summary(recent_logs)
+            # Try online summary first, fallback to local if fails
+            try:
+                summary = await self.openai_service.generate_summary(recent_logs)
+            except Exception as e:
+                logger.warning(f"OpenAI summary failed, using local summarizer: {e}")
+                # Extract metrics for local summarizer
+                recent_photos = [log for log in recent_logs if log.get('type') == 'photo']
+                if recent_photos:
+                    latest = recent_photos[-1]
+                    percent_blemished = latest.get('percent_blemished', 0)
+                    texture_metrics = latest.get('texture_metrics', {})
+                    condition_scores = latest.get('condition_scores', {})
+                    summary = self.local_summarizer.generate_summary(
+                        percent_blemished,
+                        texture_metrics,
+                        condition_scores
+                    )
 
-            await message.reply_text(
+            # Queue message in case Telegram is down
+            msg_id = self.message_queue.queue_message(
+                str(update.effective_user.id),
+                "summary",
                 f"📈 *Your Weekly Skin Health Summary*\n\n{summary}",
-                parse_mode=ParseMode.MARKDOWN,
             )
+
+            try:
+                await message.reply_text(
+                    f"📈 *Your Weekly Skin Health Summary*\n\n{summary}",
+                    parse_mode=ParseMode.MARKDOWN,
+                )
+                self.message_queue.mark_sent(msg_id)
+            except Exception as e:
+                logger.warning(f"Failed to send message, queued for later: {e}")
+
             await self.send_main_menu(update)
 
         except Exception as e:
@@ -600,61 +633,120 @@ Track consistently for best results! 🌟
         user_id = update.effective_user.id
         photo = update.message.photo[-1]  # Get highest resolution photo
 
+        # Send initial acknowledgment
+        status_message = await update.message.reply_text(
+            "📸 Receiving your photo...\n"
+            "I'll analyze it and provide feedback shortly!"
+        )
+
         try:
             # Get file info
             file = await context.bot.get_file(photo.file_id)
 
+            # Update status
+            await status_message.edit_text(
+                "📸 Photo received!\n"
+                "🔄 Uploading and preparing for analysis..."
+            )
 
-            # Upload to Supabase storage and get local temp path and image id
-            photo_url, temp_path, image_id = await self.database.save_photo(user_id, file)
+            try:
+                # Upload to Supabase storage and get local temp path and image id
+                photo_url, temp_path, image_id = await self.database.save_photo(user_id, file)
+                logger.info(f"Photo saved successfully. URL: {photo_url}, Path: {temp_path}, ID: {image_id}")
 
-            async def process_and_cleanup():
+                # Update status with upload confirmation
+                await status_message.edit_text(
+                    "📸 Photo received!\n"
+                    "✅ Upload complete\n"
+                    "🔍 Starting skin analysis..."
+                )
+            except Exception as e:
+                logger.error(f"Error saving photo: {e}", exc_info=True)
+                raise
+
+            async def process_and_send_results():
                 try:
-                    await asyncio.to_thread(
+                    # Process the image
+                    analysis_result = await asyncio.to_thread(
                         process_skin_image,
                         temp_path,
                         str(user_id),
                         image_id,
                         self.database.client,
+                        self.analysis_provider,
                     )
-                finally:
-                    try:
-                        os.unlink(temp_path)
-                        logger.info("[%s] Temporary file deleted: %s", user_id, temp_path)
-                    except Exception as cleanup_error:
-                        logger.warning(
-                            "[%s] Could not delete temp file %s: %s",
-                            user_id,
-                            temp_path,
-                            cleanup_error,
+
+                    # Generate analysis summary using OpenAI
+                    ai_analysis = await self.openai_service.analyze_photo(photo_url)
+
+                    # Send the combined results
+                    analysis_message = (
+                        "✨ *Analysis Complete!*\n\n"
+                        f"{ai_analysis}\n\n"
+                        "🔍 *Technical Details:*\n"
+                    )
+
+                    if analysis_result and analysis_result.get("face_count", 0) > 0:
+                        face_data = analysis_result["faces"][0]
+                        percent_blemished = analysis_result.get("percent_blemished", 0)
+                        analysis_message += (
+                            f"• Affected Area: {percent_blemished:.1f}%\n"
+                            f"• Face Area: {analysis_result.get('face_area_px', 0)} px²\n"
+                            "• Analysis images have been saved for tracking\n\n"
+                            "💡 Use /summary to see your progress over time!"
+                        )
+                    else:
+                        analysis_message += (
+                            "⚠️ No face detected. For best results:\n"
+                            "• Ensure good lighting\n"
+                            "• Face should be clearly visible\n"
+                            "• Minimize glare and shadows"
                         )
 
-            # Offload processing to a background task
-            asyncio.create_task(
-                asyncio.to_thread(
-                    process_skin_image,
-                    temp_path,
-                    str(user_id),
-                    image_id,
-                    self.database.client,
-                    self.analysis_provider,
-                )
-            )
+                    await status_message.edit_text(
+                        analysis_message,
+                        parse_mode=ParseMode.MARKDOWN
+                    )
 
+                except Exception as e:
+                    logger.error(f"Error in analysis: {str(e)}", exc_info=True)
+                    logger.error(f"Analysis traceback: {traceback.format_exc()}")
+                    await status_message.edit_text(
+                        f"✅ Photo saved successfully!\n\n"
+                        f"⚠️ Analysis error: {str(e)}\n\n"
+                        "The photo has been saved but analysis failed.\n"
+                        "This might be because:\n"
+                        "• Face detection failed\n"
+                        "• Image quality issues\n"
+                        "• Processing error\n\n"
+                        "Try taking another photo with good lighting and clear face visibility."
+                    )
+                finally:
+                    # Cleanup
+                    try:
+                        os.unlink(temp_path)
+                        logger.info(f"Temporary file deleted: {temp_path}")
+                    except Exception as cleanup_error:
+                        logger.warning(f"Could not delete temp file: {cleanup_error}")
 
-            # Save photo log without AI analysis
+            # Start the analysis process in the background
+            asyncio.create_task(process_and_send_results())
+
+            # Save photo log
             await self.database.log_photo(user_id, photo_url)
 
-            await update.message.reply_text(
-                "\ud83d\udcf7 Photo uploaded successfully!"
-            )
-
+            # Show the main menu
             await self.send_main_menu(update)
 
         except Exception as e:
-            logger.error(f"Error handling photo: {e}")
-            await update.message.reply_text(
-                "Sorry, there was an error processing your photo. Please try again."
+            logger.error(f"Error handling photo: {e}", exc_info=True)
+            logger.error(f"Full traceback: {traceback.format_exc()}")
+            await status_message.edit_text(
+                f"❌ Error details: {str(e)}\n\n"
+                "Please try again. If the problem persists:\n"
+                "• Check your internet connection\n"
+                "• Try sending a smaller image\n"
+                "• Wait a few minutes before trying again"
             )
             await self.send_main_menu(update)
 

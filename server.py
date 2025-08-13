@@ -181,12 +181,15 @@ async def telegram_auth(data: TelegramAuthRequest):
 @api_router.post("/webhook")
 async def webhook(request: Request, background_tasks: BackgroundTasks):
     try:
+        logger.info("Received webhook request")
         update_data = await request.json()
+        logger.info(f"Webhook data: {json.dumps(update_data)}")
         background_tasks.add_task(bot.process_update, update_data)
         return JSONResponse(content={"status": "accepted"})
     except Exception as e:
         logger.error(f"Error processing webhook: {e}")
-        raise HTTPException(status_code=500, detail="Internal server error")
+        logger.error(f"Request body: {await request.body()}")
+        raise HTTPException(status_code=500, detail=f"Internal server error: {str(e)}")
 
 class IngredientRequest(BaseModel):
     product_name: str
