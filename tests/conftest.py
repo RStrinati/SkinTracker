@@ -1,7 +1,18 @@
 import sys, os, types
+import pytest
 
 # Ensure project root is on PYTHONPATH for tests
 ROOT_DIR = os.path.abspath(os.path.join(os.path.dirname(__file__), '..'))
+
+@pytest.fixture
+def anyio_backend():
+    """Configure the async test backend to use asyncio only."""
+    return 'asyncio'
+
+@pytest.fixture(autouse=True)
+async def setup_teardown():
+    """Setup and teardown for all async tests."""
+    yield
 if ROOT_DIR not in sys.path:
     sys.path.insert(0, ROOT_DIR)
 

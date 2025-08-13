@@ -1,7 +1,29 @@
 import pytest
+from unittest.mock import MagicMock, patch
+import numpy as np
 
-cv2 = pytest.importorskip("cv2")
-np = pytest.importorskip("numpy")
+@pytest.fixture
+def mock_cv2():
+    with patch('skin_analysis.cv2') as mock:
+        mock.imread = MagicMock(return_value=np.zeros((300, 300, 3)))
+        mock.imwrite = MagicMock(return_value=True)
+        mock.circle = MagicMock()
+        mock.getRotationMatrix2D = MagicMock(return_value=np.array([[1, 0, 0], [0, 1, 0]]))
+        mock.warpAffine = MagicMock(return_value=np.zeros((300, 300, 3)))
+        mock.resize = MagicMock(return_value=np.zeros((300, 300, 3)))
+        mock.cvtColor = MagicMock(return_value=np.zeros((300, 300)))
+        mock.bitwise_and = MagicMock(return_value=np.zeros((300, 300)))
+        mock.GaussianBlur = MagicMock(return_value=np.zeros((300, 300)))
+        mock.threshold = MagicMock(return_value=(None, np.zeros((300, 300))))
+        mock.findContours = MagicMock(return_value=([], None))
+        mock.drawContours = MagicMock()
+        mock.countNonZero = MagicMock(return_value=90000)  # 300x300 size
+        mock.COLOR_BGR2GRAY = MagicMock()
+        mock.THRESH_BINARY_INV = 0
+        mock.THRESH_OTSU = 0
+        mock.RETR_EXTERNAL = 0
+        mock.CHAIN_APPROX_SIMPLE = 0
+        yield mock
 
 from skin_analysis import process_skin_image
 
@@ -27,18 +49,18 @@ class SingleFaceProvider:
             ],
         }
 
-def test_process_skin_image_with_face(tmp_path):
+def test_process_skin_image_with_face(tmp_path, mock_cv2):
     """Processing an image with a face should return valid results."""
-    # Create a mock image with a face (replace with actual test image if available)
+    # Create a mock image with a face
     img = np.full((300, 300, 3), 255, dtype=np.uint8)
-    cv2.circle(img, (150, 150), 50, (0, 0, 0), -1)  # Simulate a face
     img_path = tmp_path / "face.png"
-    cv2.imwrite(str(img_path), img)
+    mock_cv2.imwrite(str(img_path), img)
 
     provider = SingleFaceProvider()
     result = process_skin_image(str(img_path), "user", "img", client=None, provider=provider)
 
     assert result is not None
+    mock_cv2.imread.assert_called_once_with(str(img_path))
 
 def test_process_skin_image_invalid_format(tmp_path):
     """Processing an unsupported image format should raise an error."""

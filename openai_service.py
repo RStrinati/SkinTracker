@@ -60,7 +60,7 @@ Limit response to 300-400 words.
             
         except Exception as e:
             logger.error(f"Error generating summary: {e}")
-            return "I couldn't generate your summary right now. Please try again later."
+            raise e
 
     async def analyze_photo(self, photo_url: str) -> str:
         """Analyze skin photo for basic observations."""

@@ -36,6 +36,10 @@ except Exception:  # pragma: no cover - fallback for environments without APSche
         def get_job(self, job_id: str):
             return self.jobs.get(job_id)
 
+        def remove_job(self, job_id: str) -> None:
+            if job_id in self.jobs:
+                del self.jobs[job_id]
+
         def shutdown(self, wait: bool = False) -> None:
             self.jobs.clear()
 
@@ -102,6 +106,32 @@ class ReminderScheduler:
         ]
         markup = InlineKeyboardMarkup(keyboard)
         await self.bot.send_message(chat_id, "How does your skin feel today?", reply_markup=markup)
+
+    def remove_reminder(self, chat_id: int) -> None:
+        """Remove a user's daily reminder.
+
+        Parameters
+        ----------
+        chat_id: int
+            Telegram chat identifier of the reminder to remove.
+        """
+        job_id = f"reminder_{chat_id}"
+        if self.scheduler.get_job(job_id):
+            self.scheduler.remove_job(job_id)
+            self.logger.info("Removed daily reminder for chat %s", chat_id)
+
+    def remove_reminder(self, chat_id: int) -> None:
+        """Remove a user's daily reminder.
+
+        Parameters
+        ----------
+        chat_id: int
+            Telegram chat identifier of the reminder to remove.
+        """
+        job_id = f"reminder_{chat_id}"
+        if self.scheduler.get_job(job_id):
+            self.scheduler.remove_job(job_id)
+            self.logger.info("Removed daily reminder for chat %s", chat_id)
 
     def shutdown(self) -> None:
         """Shutdown the underlying APScheduler instance."""

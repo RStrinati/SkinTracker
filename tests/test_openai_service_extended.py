@@ -10,7 +10,7 @@ class FakeCompletion:
 class FakeChat:
     def __init__(self, content):
         async def create(*args, **kwargs):
-            return FakeCompletion(content)
+            raise Exception("Invalid API key")
         self.completions = MagicMock()
         self.completions.create = create
 
