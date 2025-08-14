@@ -16,6 +16,7 @@ from dotenv import load_dotenv
 
 from bot import SkinHealthBot
 from api.routers.analysis import router as analysis_router
+from telegram import Update
 
 # Load environment variables from .env file
 load_dotenv()
@@ -181,12 +182,56 @@ async def telegram_auth(data: TelegramAuthRequest):
 @api_router.post("/webhook")
 async def webhook(request: Request, background_tasks: BackgroundTasks):
     try:
+        started = time.perf_counter()
         update_data = await request.json()
-        background_tasks.add_task(bot.process_update, update_data)
+        update_id = update_data.get("update_id")
+        background_tasks.add_task(process_update_safe, update_data)
+        took = (time.perf_counter() - started) * 1000
+        logger.info("Webhook ack: update_id=%s in %.1fms", update_id, took)
         return JSONResponse(content={"status": "accepted"})
     except Exception as e:
         logger.error(f"Error processing webhook: {e}")
         raise HTTPException(status_code=500, detail="Internal server error")
+
+
+async def process_update_safe(update_data: dict):
+    from telegram.error import RetryAfter, BadRequest
+
+    update = Update.de_json(update_data, bot.bot)
+    chat_id = update.effective_chat.id if update.effective_chat else None
+    started = time.perf_counter()
+    try:
+        await bot.process_update(update_data)
+    except RetryAfter as e:
+        logger.warning("Rate limited: sleeping %.2fs", e.retry_after)
+        await asyncio.sleep(e.retry_after)
+        try:
+            await bot.process_update(update_data)
+        except Exception:
+            logger.exception("Failed after RetryAfter")
+    except BadRequest:
+        logger.exception("BadRequest in process_update")
+        if chat_id:
+            try:
+                await bot.bot.send_message(
+                    chat_id=chat_id,
+                    text="I saved your photo but couldn’t format the message. I’ll improve this shortly.",
+                )
+            except Exception:
+                logger.exception("Failed to notify user of BadRequest")
+    except Exception:
+        logger.exception("Unhandled error in process_update")
+        if chat_id:
+            try:
+                await bot.bot.send_message(
+                    chat_id=chat_id,
+                    text="I saved your photo, but processing hit an error. I’ll take a look and update you.",
+                )
+            except Exception:
+                logger.exception("Failed to notify user of error")
+    finally:
+        took = (time.perf_counter() - started) * 1000
+        logger.info("Processed update %s in %.1fms", update.update_id, took)
 
 class IngredientRequest(BaseModel):
     product_name: str

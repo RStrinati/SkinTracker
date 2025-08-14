@@ -5,11 +5,13 @@ from datetime import datetime, timedelta
 from typing import Dict, List, Optional
 import json
 import traceback
+import time
 
 from dotenv import load_dotenv
 from telegram import Update, InlineKeyboardButton, InlineKeyboardMarkup, Bot, BotCommand
 from telegram.ext import Application, CommandHandler, CallbackQueryHandler, MessageHandler, filters
-from telegram.constants import ParseMode
+from telegram.constants import ParseMode, ChatAction
+from telegram.error import RetryAfter, BadRequest
 
 from database import Database
 from openai_service import OpenAIService
@@ -137,11 +139,8 @@ class SkinHealthBot:
 
     async def process_update(self, update_data: dict):
         """Process incoming Telegram update."""
-        try:
-            update = Update.de_json(update_data, self.bot)
-            await self.application.process_update(update)
-        except Exception as e:
-            logger.error(f"Error processing update: {e}")
+        update = Update.de_json(update_data, self.bot)
+        await self.application.process_update(update)
 
     async def set_webhook(self, webhook_url: str) -> bool:
         """Set webhook URL."""
@@ -598,26 +597,77 @@ Track consistently for best results! 🌟
     async def handle_photo(self, update: Update, context):
         """Handle photo uploads."""
         user_id = update.effective_user.id
-        photo = update.message.photo[-1]  # Get highest resolution photo
+        chat_id = update.effective_chat.id
+        photo = update.message.photo[-1]  # Highest resolution
 
-        try:
-            # Get file info
-            file = await context.bot.get_file(photo.file_id)
+        # 1) Acknowledge receipt quickly
+        progress = await update.message.reply_text(
+            "\ud83d\udcf7 Got your photo — starting analysis…"
+        )
+        progress_id = progress.message_id
 
+        async def process_photo():
+            temp_path = None
+            started = time.perf_counter()
+            try:
+                await context.bot.send_chat_action(chat_id=chat_id, action=ChatAction.UPLOAD_PHOTO)
 
-            # Upload to Supabase storage and get local temp path and image id
-            photo_url, temp_path, image_id = await self.database.save_photo(user_id, file)
+                # Download and store photo
+                file = await context.bot.get_file(photo.file_id)
+                photo_url, temp_path, image_id = await self.database.save_photo(user_id, file)
 
-            async def process_and_cleanup():
+                # Update progress before heavy analysis
                 try:
-                    await asyncio.to_thread(
-                        process_skin_image,
-                        temp_path,
-                        str(user_id),
-                        image_id,
-                        self.database.client,
+                    await context.bot.edit_message_text(
+                        chat_id=chat_id,
+                        message_id=progress_id,
+                        text="\ud83e\uddea Analyzing… almost there…",
                     )
-                finally:
+                except RetryAfter as e:
+                    logger.warning("Rate limited: sleeping %.2fs", e.retry_after)
+                    await asyncio.sleep(e.retry_after)
+                    await context.bot.edit_message_text(
+                        chat_id=chat_id,
+                        message_id=progress_id,
+                        text="\ud83e\uddea Analyzing… almost there…",
+                    )
+
+                # Run CPU-heavy analysis
+                analysis = await asyncio.to_thread(
+                    process_skin_image,
+                    temp_path,
+                    str(user_id),
+                    image_id,
+                    self.database.client,
+                    self.analysis_provider,
+                )
+
+                caption = (
+                    f"✅ Saved (id: {image_id})\nURL: {photo_url}\n\nSummary:\n{analysis[:900]}"
+                )
+
+                await context.bot.send_photo(
+                    chat_id=chat_id,
+                    photo=file.file_id,
+                    caption=caption,
+                )
+
+                await self.database.log_photo(user_id, photo_url, analysis)
+
+            except BadRequest:
+                logger.exception("BadRequest in process_photo")
+                await context.bot.send_message(
+                    chat_id=chat_id,
+                    text="I saved your photo but couldn’t format the message. I’ll improve this shortly.",
+                )
+            except Exception:
+                logger.exception("Unhandled error in process_photo")
+                await context.bot.send_message(
+                    chat_id=chat_id,
+                    text="I saved your photo, but processing hit an error. I’ll take a look and update you.",
+                )
+            finally:
+                if temp_path:
                     try:
                         os.unlink(temp_path)
                         logger.info("[%s] Temporary file deleted: %s", user_id, temp_path)
@@ -628,35 +678,11 @@ Track consistently for best results! 🌟
                             temp_path,
                             cleanup_error,
                         )
+                took = (time.perf_counter() - started) * 1000
+                logger.info("Processed photo update for %s in %.1fms", user_id, took)
+                await self.send_main_menu(update)
 
-            # Offload processing to a background task
-            asyncio.create_task(
-                asyncio.to_thread(
-                    process_skin_image,
-                    temp_path,
-                    str(user_id),
-                    image_id,
-                    self.database.client,
-                    self.analysis_provider,
-                )
-            )
-
-
-            # Save photo log without AI analysis
-            await self.database.log_photo(user_id, photo_url)
-
-            await update.message.reply_text(
-                "\ud83d\udcf7 Photo uploaded successfully!"
-            )
-
-            await self.send_main_menu(update)
-
-        except Exception as e:
-            logger.error(f"Error handling photo: {e}")
-            await update.message.reply_text(
-                "Sorry, there was an error processing your photo. Please try again."
-            )
-            await self.send_main_menu(update)
+        asyncio.create_task(process_photo())
 
     async def handle_text(self, update: Update, context):
         """Handle plain text messages for custom trigger/symptom inputs."""
