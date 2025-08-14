@@ -99,8 +99,8 @@ class SkinHealthBot:
     async def initialize(self):
         """Initialize the bot and database."""
         await self.database.initialize()
-        await self.application.initialize()  # 👈 REQUIRED
-        await self.application.start()       # 👈 REQUIRED
+        await self.application.initialize()  # Initialize but don't start polling
+        # Don't call application.start() for webhook mode - it starts polling
         self.bot = self.application.bot  # Make sure this is after `initialize()`
         await self._setup_persistent_menu()
         # Initialize reminder scheduler now that bot is available
@@ -119,7 +119,7 @@ class SkinHealthBot:
 
     async def shutdown(self):
         """Cleanup resources."""
-        await self.application.stop()
+        # Don't call application.stop() since we didn't start polling
         await self.application.shutdown()
         await self.database.close()
         if self.scheduler:

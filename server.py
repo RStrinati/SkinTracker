@@ -239,7 +239,7 @@ async def process_update_safe(update_data: dict):
         logger.info("[UPDATE] Processing other update type - update_id=%s chat_id=%s", update_id, chat_id)
     
     try:
-        await bot.process_update(update_data)
+        await bot.application.process_update(update)
         logger.info("[UPDATE] Successfully processed - update_id=%s", update_id)
     except RetryAfter as e:
         logger.warning("Rate limited: sleeping %.2fs", e.retry_after)
