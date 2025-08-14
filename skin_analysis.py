@@ -153,7 +153,23 @@ def process_skin_image(
         for local_path in [face_image_path, blemish_image_path, overlay_image_path]:
             with open(local_path, "rb") as f:
                 bucket.upload(local_path.name, f, {"content-type": "image/png"})
-        client.table("skin_kpis").insert(record).execute()
+        
+        # Convert telegram_id (string) to user UUID for database insert
+        try:
+            telegram_id = int(user_id)
+            user_response = client.table("users").select("id").eq("telegram_id", telegram_id).execute()
+            
+            if user_response.data:
+                actual_user_id = user_response.data[0]["id"]
+                # Update record with actual UUID
+                record["user_id"] = actual_user_id
+                
+                client.table("skin_kpis").insert(record).execute()
+                logger.info(f"Saved skin KPIs for user {telegram_id}, image {image_id}")
+            else:
+                logger.error(f"User not found for telegram_id {telegram_id}")
+        except Exception as e:
+            logger.exception(f"Error saving skin KPIs for user {user_id}, image {image_id}: {e}")
 
     return record
 

@@ -195,9 +195,27 @@ async def webhook(request: Request, background_tasks: BackgroundTasks):
         started = time.perf_counter()
         update_data = await request.json()
         update_id = update_data.get("update_id")
+        
+        # Enhanced logging to see what type of update we're receiving
+        update_type = "unknown"
+        if "message" in update_data:
+            message = update_data["message"]
+            if "photo" in message:
+                update_type = "photo"
+                logger.info("[WEBHOOK] Photo upload received - update_id=%s", update_id)
+            elif "text" in message:
+                update_type = "text"
+                logger.info("[WEBHOOK] Text message received - update_id=%s", update_id)
+            else:
+                update_type = "other_message"
+                logger.info("[WEBHOOK] Other message type received - update_id=%s", update_id)
+        elif "callback_query" in update_data:
+            update_type = "callback"
+            logger.info("[WEBHOOK] Callback query received - update_id=%s", update_id)
+        
         background_tasks.add_task(process_update_safe, update_data)
         took = (time.perf_counter() - started) * 1000
-        logger.info("Webhook ack: update_id=%s in %.1fms", update_id, took)
+        logger.info("Webhook ack: update_id=%s type=%s in %.1fms", update_id, update_type, took)
         return JSONResponse(content={"status": "accepted"})
     except Exception as e:
         logger.error(f"Error processing webhook: {e}")
@@ -209,14 +227,26 @@ async def process_update_safe(update_data: dict):
 
     update = Update.de_json(update_data, bot.bot)
     chat_id = update.effective_chat.id if update.effective_chat else None
+    update_id = update.update_id
     started = time.perf_counter()
+    
+    # Log what type of update we're processing
+    if update.message and update.message.photo:
+        logger.info("[UPDATE] Starting photo processing - update_id=%s chat_id=%s", update_id, chat_id)
+    elif update.message and update.message.text:
+        logger.info("[UPDATE] Processing text message - update_id=%s chat_id=%s", update_id, chat_id)
+    else:
+        logger.info("[UPDATE] Processing other update type - update_id=%s chat_id=%s", update_id, chat_id)
+    
     try:
         await bot.process_update(update_data)
+        logger.info("[UPDATE] Successfully processed - update_id=%s", update_id)
     except RetryAfter as e:
         logger.warning("Rate limited: sleeping %.2fs", e.retry_after)
         await asyncio.sleep(e.retry_after)
         try:
             await bot.process_update(update_data)
+            logger.info("[UPDATE] Successfully processed after retry - update_id=%s", update_id)
         except Exception:
             logger.exception("Failed after RetryAfter")
     except BadRequest:

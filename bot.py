@@ -18,6 +18,7 @@ from openai_service import OpenAIService
 from reminder_scheduler import ReminderScheduler
 from analysis_providers.insightface_provider import InsightFaceProvider
 from skin_analysis import process_skin_image
+from skin_kpi_analyzer import SkinKPIAnalyzer
 
 # Load environment variables from .env file
 load_dotenv()
@@ -71,6 +72,7 @@ class SkinHealthBot:
         self.application.add_handler(CommandHandler("summary", self.summary_command))
         # Extra UX commands
         self.application.add_handler(CommandHandler("progress", self.progress_command))
+        self.application.add_handler(CommandHandler("skin", self.skin_command))
         self.application.add_handler(CommandHandler("settings", self.settings_command))
         self.application.add_handler(CommandHandler("help", self.help_command))
         
@@ -88,6 +90,7 @@ class SkinHealthBot:
         commands = [
             BotCommand("log", "📝 Log an entry"),
             BotCommand("progress", "📊 View progress"),
+            BotCommand("skin", "🔬 Skin analysis"),
             BotCommand("settings", "⚙️ Settings"),
         ]
         await self.bot.set_my_commands(commands)
@@ -275,24 +278,135 @@ Ready to start your skin health journey? Use /log to begin! ✨
             await self.send_main_menu(update)
 
     async def progress_command(self, update: Update, context):
-        """Handle /progress command - show user statistics."""
+        """Handle /progress command - show user statistics and skin progress."""
         user_id = update.effective_user.id
         try:
+            # Get traditional stats
             stats = await self.database.get_user_stats(user_id, days=30)
-            text = (
-                "📊 *30-day Overview*\n"
-                f"• Products logged: {stats.get('product_count', 0)}\n"
-                f"• Triggers logged: {stats.get('trigger_count', 0)}\n"
-                f"• Symptoms logged: {stats.get('symptom_count', 0)}\n"
-                f"• Photos uploaded: {stats.get('photo_count', 0)}"
-            )
+            
+            # Get skin KPI progress
+            kpi_analyzer = SkinKPIAnalyzer(self.database)
+            skin_summary = await kpi_analyzer.get_progress_summary(user_id, days=30)
+            
+            # Build the progress message
+            text = "📊 *30-day Progress Overview*\n\n"
+            
+            # Traditional logging stats
+            text += "📝 *Activity Summary:*\n"
+            text += f"• Products logged: {stats.get('product_count', 0)}\n"
+            text += f"• Triggers logged: {stats.get('trigger_count', 0)}\n"
+            text += f"• Symptoms logged: {stats.get('symptom_count', 0)}\n"
+            text += f"• Photos uploaded: {stats.get('photo_count', 0)}\n\n"
+            
+            # Skin KPI analysis
+            if "message" in skin_summary:
+                # Not enough data for skin progress
+                text += "📸 *Skin Progress:*\n"
+                text += f"{skin_summary['message']}\n"
+                text += "_Upload more photos to track your skin improvement!_"
+            else:
+                # We have skin progress data
+                blemish = skin_summary["blemish_improvement"]
+                photos = skin_summary["total_photos"]
+                
+                if blemish["improved"]:
+                    emoji = "✅"
+                    direction = "Improvement"
+                    change_text = f"↓ {abs(blemish['change']):.1f}%"
+                else:
+                    emoji = "⚠️"
+                    direction = "Increase"
+                    change_text = f"↑ {blemish['change']:.1f}%"
+                
+                text += f"🎯 *Skin Progress Analysis:* {emoji}\n"
+                text += f"📸 Photos analyzed: {photos}\n"
+                text += f"📅 Period: {skin_summary['date_range']['start'][:10]} to {skin_summary['date_range']['end'][:10]}\n\n"
+                
+                text += f"🔍 *Blemish Analysis:*\n"
+                text += f"• Current: {blemish['current_percent']:.1f}%\n"
+                text += f"• Initial: {blemish['initial_percent']:.1f}%\n"
+                text += f"• Change: {change_text}\n"
+                text += f"• Average: {skin_summary['average_blemish_percent']:.1f}%\n\n"
+                
+                text += f"📏 *Face Area Metrics:*\n"
+                text += f"• Current: {skin_summary['face_area']['current_px']:,} pixels\n"
+                text += f"• Initial: {skin_summary['face_area']['initial_px']:,} pixels\n\n"
+                
+                text += f"{emoji} *Overall {direction.lower()}* detected in skin condition!"
+            
             message = update.message or update.callback_query.message
             await message.reply_text(text, parse_mode=ParseMode.MARKDOWN)
             await self.send_main_menu(update)
+            
         except Exception as e:
             logger.exception("Error getting progress")
             message = update.message or update.callback_query.message
             await message.reply_text("Sorry, I couldn't load your progress right now.")
+            await self.send_main_menu(update)
+
+    async def skin_command(self, update: Update, context):
+        """Handle /skin command - show detailed skin analysis and trends."""
+        user_id = update.effective_user.id
+        try:
+            kpi_analyzer = SkinKPIAnalyzer(self.database)
+            
+            # Get recent KPIs
+            recent_kpis = await kpi_analyzer.get_user_kpis(user_id, days=30)
+            
+            if not recent_kpis:
+                text = "📸 *Skin Analysis*\n\n"
+                text += "No skin photos found in the last 30 days.\n"
+                text += "Upload a photo to start tracking your skin health!"
+                
+                message = update.message or update.callback_query.message
+                await message.reply_text(text, parse_mode=ParseMode.MARKDOWN)
+                await self.send_main_menu(update)
+                return
+            
+            # Get detailed analysis
+            skin_summary = await kpi_analyzer.get_progress_summary(user_id, days=30)
+            weekly_trends = await kpi_analyzer.get_weekly_trends(user_id, weeks=4)
+            
+            text = "🔬 *Detailed Skin Analysis*\n\n"
+            
+            # Latest photo metrics
+            latest = recent_kpis[0]  # Most recent photo
+            text += f"📸 *Latest Photo Analysis:*\n"
+            text += f"• Date: {latest['timestamp'][:10]}\n"
+            text += f"• Face Area: {latest['face_area_px']:,} pixels\n"
+            text += f"• Blemish Area: {latest['blemish_area_px']:,} pixels\n"
+            text += f"• Blemish Percentage: {latest['percent_blemished']:.1f}%\n\n"
+            
+            # Progress summary
+            if "message" not in skin_summary:
+                blemish = skin_summary["blemish_improvement"]
+                trend_emoji = "📈" if blemish["improved"] else "📉"
+                
+                text += f"{trend_emoji} *30-Day Progress:*\n"
+                text += f"• Photos analyzed: {skin_summary['total_photos']}\n"
+                text += f"• Average blemish %: {skin_summary['average_blemish_percent']:.1f}%\n"
+                text += f"• Change: {blemish['change']:+.1f}%\n\n"
+            
+            # Weekly trends
+            if weekly_trends:
+                text += "📊 *Weekly Trends:*\n"
+                for trend in weekly_trends[-3:]:  # Last 3 weeks
+                    week_date = trend['week_start']
+                    avg_blemish = trend['avg_blemish_percent']
+                    photo_count = trend['photo_count']
+                    text += f"• Week of {week_date}: {avg_blemish:.1f}% ({photo_count} photos)\n"
+                text += "\n"
+            
+            text += "💡 *Tip:* Upload photos regularly to track your skin improvement over time!"
+            
+            message = update.message or update.callback_query.message
+            await message.reply_text(text, parse_mode=ParseMode.MARKDOWN)
+            await self.send_main_menu(update)
+            
+        except Exception as e:
+            logger.exception("Error getting skin analysis")
+            message = update.message or update.callback_query.message
+            await message.reply_text("Sorry, I couldn't load your skin analysis right now.")
             await self.send_main_menu(update)
 
     async def _show_settings(self, update: Update, context):
@@ -351,6 +465,8 @@ Ready to start your skin health journey? Use /log to begin! ✨
 /start - Register and get started
 /log - Start logging session
 /summary - Get AI-powered weekly insights
+/progress - View 30-day activity and skin progress
+/skin - Detailed skin analysis and trends
 /help - Show this help message
 
 Track consistently for best results! 🌟
