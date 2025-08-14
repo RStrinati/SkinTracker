@@ -137,10 +137,16 @@ class SkinHealthBot:
         await message.reply_text("Main Menu", reply_markup=reply_markup)
 
 
-    async def process_update(self, update_data: dict):
-        """Process incoming Telegram update."""
-        update = Update.de_json(update_data, self.bot)
-        await self.application.process_update(update)
+    async def process_update(self, update_data: dict) -> None:
+        if not self.application.bot:
+            raise RuntimeError("Bot not initialized yet")
+
+        try:
+            update = Update.de_json(update_data, self.application.bot)
+            await self.application.update_queue.put(update)  # returns immediately
+        except Exception:
+            logger.exception("Failed to enqueue Telegram update")
+
 
     async def set_webhook(self, webhook_url: str) -> bool:
         """Set webhook URL."""
@@ -594,60 +600,47 @@ Track consistently for best results! 🌟
             await query.edit_message_text("Sorry, there was an error logging your trigger.")
 
     async def handle_photo(self, update: Update, context):
-        """Handle photo uploads."""
         user_id = update.effective_user.id
-        photo = update.message.photo[-1]  # Get highest resolution photo
+        photo = update.message.photo[-1]
 
         try:
-            # Get file info
             file = await context.bot.get_file(photo.file_id)
-
-
-            # Upload to Supabase storage and get local temp path and image id
             photo_url, temp_path, image_id = await self.database.save_photo(user_id, file)
 
             async def process_and_cleanup():
                 try:
+                    # If process_skin_image takes (path, user_id, image_id, client, analysis_provider)
                     await asyncio.to_thread(
                         process_skin_image,
                         temp_path,
                         str(user_id),
                         image_id,
                         self.database.client,
+                        self.analysis_provider,   # ← remove this arg if not in the signature
                     )
+                except Exception:
+                    logger.exception("process_skin_image failed for image_id=%s", image_id)
                 finally:
                     try:
                         os.unlink(temp_path)
-                        logger.info(f"[{user_id}] Temporary file deleted: {temp_path}")
+                        logger.info("Temp file deleted: %s", temp_path)
                     except Exception as cleanup_error:
-                        logger.warning(
-                            "[%s] Could not delete temp file %s: %s",
-                            user_id,
-                            temp_path,
-                            cleanup_error,
-                        )
+                        logger.warning("Could not delete temp file %s: %s", temp_path, cleanup_error)
 
-            # Offload processing to a background task
-            asyncio.create_task(
-                asyncio.to_thread(
-                    process_skin_image,
-                    temp_path,
-                    str(user_id),
-                    image_id,
-                    self.database.client,
-                    self.analysis_provider,
-                )
-            )
+            # Kick off the background work (no extra parentheses)
+            asyncio.create_task(process_and_cleanup())
 
-
-            # Save photo log without AI analysis
             await self.database.log_photo(user_id, photo_url)
-
-            await update.message.reply_text(
-                "\ud83d\udcf7 Photo uploaded successfully!"
-            )
-
+            await update.message.reply_text("📷 Photo uploaded successfully!")
             await self.send_main_menu(update)
+
+        except Exception:
+            logger.exception("Error handling photo")
+            await update.message.reply_text(
+                "Sorry, there was an error processing your photo. Please try again."
+            )
+            await self.send_main_menu(update)
+
 
         except Exception as e:
             logger.error(f"Error handling photo: {e}")
