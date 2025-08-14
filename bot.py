@@ -5,11 +5,13 @@ from datetime import datetime, timedelta
 from typing import Dict, List, Optional
 import json
 import traceback
+import time
 
 from dotenv import load_dotenv
 from telegram import Update, InlineKeyboardButton, InlineKeyboardMarkup, Bot, BotCommand
 from telegram.ext import Application, CommandHandler, CallbackQueryHandler, MessageHandler, filters
-from telegram.constants import ParseMode
+from telegram.constants import ParseMode, ChatAction
+from telegram.error import RetryAfter, BadRequest
 
 from database import Database
 from openai_service import OpenAIService
@@ -137,11 +139,8 @@ class SkinHealthBot:
 
     async def process_update(self, update_data: dict):
         """Process incoming Telegram update."""
-        try:
-            update = Update.de_json(update_data, self.bot)
-            await self.application.process_update(update)
-        except Exception as e:
-            logger.error(f"Error processing update: {e}")
+        update = Update.de_json(update_data, self.bot)
+        await self.application.process_update(update)
 
     async def set_webhook(self, webhook_url: str) -> bool:
         """Set webhook URL."""
@@ -602,35 +601,44 @@ Track consistently for best results! 🌟
         try:
             # Get file info
             file = await context.bot.get_file(photo.file_id)
-            logger.info(f"[Photo] Downloading file for user {user_id}, file_id: {photo.file_id}")
+
 
             # Upload to Supabase storage and get local temp path and image id
             photo_url, temp_path, image_id = await self.database.save_photo(user_id, file)
-            logger.info(f"[Photo] Saved photo for user {user_id}: url={photo_url}, temp_path={temp_path}, image_id={image_id}")
 
             async def process_and_cleanup():
                 try:
-                    logger.info(f"[Photo] Starting analysis for user {user_id}, image_id={image_id}")
                     await asyncio.to_thread(
                         process_skin_image,
                         temp_path,
                         str(user_id),
                         image_id,
                         self.database.client,
-                        self.analysis_provider,
                     )
-                    logger.info(f"[Photo] Analysis complete for user {user_id}, image_id={image_id}")
-                except Exception as analysis_error:
-                    logger.exception(f"[Photo] Error during analysis for user {user_id}, image_id={image_id}")
                 finally:
                     try:
                         os.unlink(temp_path)
                         logger.info(f"[{user_id}] Temporary file deleted: {temp_path}")
                     except Exception as cleanup_error:
-                        logger.warning(f"[{user_id}] Could not delete temp file {temp_path}: {cleanup_error}")
+                        logger.warning(
+                            "[%s] Could not delete temp file %s: %s",
+                            user_id,
+                            temp_path,
+                            cleanup_error,
+                        )
 
             # Offload processing to a background task
-            asyncio.create_task(process_and_cleanup())
+            asyncio.create_task(
+                asyncio.to_thread(
+                    process_skin_image,
+                    temp_path,
+                    str(user_id),
+                    image_id,
+                    self.database.client,
+                    self.analysis_provider,
+                )
+            )
+
 
             # Save photo log without AI analysis
             await self.database.log_photo(user_id, photo_url)
@@ -642,7 +650,7 @@ Track consistently for best results! 🌟
             await self.send_main_menu(update)
 
         except Exception as e:
-            logger.exception("Error handling photo")
+            logger.error(f"Error handling photo: {e}")
             await update.message.reply_text(
                 "Sorry, there was an error processing your photo. Please try again."
             )

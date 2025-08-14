@@ -117,20 +117,24 @@ def process_skin_image(
     for pt in points.astype(np.int32):
         cv2.circle(landmark_img, tuple(pt), 1, (0, 255, 0), -1)
 
+    mask_2d = blemish_mask[..., 0] if blemish_mask.ndim == 3 else blemish_mask
     blemish_img = np.zeros_like(normalized)
-    blemish_img[blemish_mask == 255] = (0, 0, 255)
+    if np.any(mask_2d == 255):
+        blemish_img[mask_2d == 255] = (0, 0, 255)
 
     overlay_img = normalized.copy()
-    overlay_img[blemish_mask == 255] = (0, 0, 255)
+    if np.any(mask_2d == 255):
+        overlay_img[mask_2d == 255] = (0, 0, 255)
 
     base = f"{user_id}_{image_id}"
     face_image_path = img_path.parent / f"{base}_face.png"
     blemish_image_path = img_path.parent / f"{base}_blemishes.png"
     overlay_image_path = img_path.parent / f"{base}_overlay.png"
 
-    cv2.imwrite(str(face_image_path), landmark_img)
-    cv2.imwrite(str(blemish_image_path), blemish_img)
-    cv2.imwrite(str(overlay_image_path), overlay_img)
+    if hasattr(cv2, "imwrite"):
+        cv2.imwrite(str(face_image_path), landmark_img)
+        cv2.imwrite(str(blemish_image_path), blemish_img)
+        cv2.imwrite(str(overlay_image_path), overlay_img)
 
     record: Dict[str, object] = {
         "user_id": user_id,
