@@ -604,11 +604,16 @@ Track consistently for best results! 🌟
         photo = update.message.photo[-1]
 
         try:
+            logger.info(f"[Photo] Starting photo handling for user {user_id}")
             file = await context.bot.get_file(photo.file_id)
+            logger.info(f"[Photo] Got file info for user {user_id}, file_id: {photo.file_id}")
+            
             photo_url, temp_path, image_id = await self.database.save_photo(user_id, file)
+            logger.info(f"[Photo] Saved photo for user {user_id}: url={photo_url}, temp_path={temp_path}, image_id={image_id}")
 
             async def process_and_cleanup():
                 try:
+                    logger.info(f"[Photo] Starting background analysis for user {user_id}, image_id={image_id}")
                     # If process_skin_image takes (path, user_id, image_id, client, analysis_provider)
                     await asyncio.to_thread(
                         process_skin_image,
@@ -618,6 +623,7 @@ Track consistently for best results! 🌟
                         self.database.client,
                         self.analysis_provider,   # ← remove this arg if not in the signature
                     )
+                    logger.info(f"[Photo] Background analysis completed for user {user_id}, image_id={image_id}")
                 except Exception:
                     logger.exception("process_skin_image failed for image_id=%s", image_id)
                 finally:
@@ -630,20 +636,16 @@ Track consistently for best results! 🌟
             # Kick off the background work (no extra parentheses)
             asyncio.create_task(process_and_cleanup())
 
+            logger.info(f"[Photo] Logging photo to database for user {user_id}")
             await self.database.log_photo(user_id, photo_url)
+            logger.info(f"[Photo] Successfully logged photo for user {user_id}")
+            
             await update.message.reply_text("📷 Photo uploaded successfully!")
             await self.send_main_menu(update)
+            logger.info(f"[Photo] Completed photo handling for user {user_id}")
 
         except Exception:
             logger.exception("Error handling photo")
-            await update.message.reply_text(
-                "Sorry, there was an error processing your photo. Please try again."
-            )
-            await self.send_main_menu(update)
-
-
-        except Exception as e:
-            logger.error(f"Error handling photo: {e}")
             await update.message.reply_text(
                 "Sorry, there was an error processing your photo. Please try again."
             )

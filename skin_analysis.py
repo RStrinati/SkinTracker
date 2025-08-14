@@ -1,15 +1,15 @@
 from __future__ import annotations
-import logging
-logger = logging.getLogger(__name__)
+
 """Skin image analysis utilities with pluggable face providers."""
 
-
-
+import logging
 from datetime import datetime, timezone
 from pathlib import Path
 from typing import Dict, Optional
 
 import numpy as np
+
+logger = logging.getLogger(__name__)
 
 try:  # Heavy dependency imported lazily
     import cv2  # type: ignore
