@@ -298,6 +298,21 @@ Ready to start your skin health journey? Use /log to begin! ✨
             text += f"• Symptoms logged: {stats.get('symptom_count', 0)}\n"
             text += f"• Photos uploaded: {stats.get('photo_count', 0)}\n\n"
             
+            # Daily mood/feeling stats
+            mood_stats = await self.database.get_mood_stats(user_id, days=30)
+            if mood_stats.get('total_entries', 0) > 0:
+                text += "😊 *Daily Mood Tracking:*\n"
+                text += f"• Check-ins: {mood_stats['total_entries']}\n"
+                text += f"• Average: {mood_stats['average_rating']:.1f}/5.0\n"
+                text += f"• Trend: {mood_stats['trend']}\n"
+                
+                # Show most common mood
+                mood_dist = mood_stats.get('mood_distribution', {})
+                if mood_dist:
+                    most_common = max(mood_dist.items(), key=lambda x: x[1])
+                    text += f"• Most common: {most_common[0]} ({most_common[1]}x)\n"
+                text += "\n"
+            
             # Skin KPI analysis
             if "message" in skin_summary:
                 # Not enough data for skin progress
@@ -597,6 +612,43 @@ Track consistently for best results! 🌟
             await query.edit_message_text(
                 f"✅ Daily reminder set for {time_str}",
             )
+            return
+
+        if data.startswith("rating_"):
+            # Handle daily mood rating from reminder
+            rating_num = int(data.split("_", 1)[1])
+            rating_map = {
+                5: "Excellent",
+                4: "Good", 
+                3: "Okay",
+                2: "Bad",
+                1: "Flare-up"
+            }
+            
+            mood_description = rating_map.get(rating_num, "Unknown")
+            
+            # Log the mood rating
+            success = await self.database.log_daily_mood(user_id, rating_num, mood_description)
+            
+            if success:
+                emoji_map = {
+                    5: "😃",
+                    4: "🙂", 
+                    3: "😐",
+                    2: "😕",
+                    1: "😫"
+                }
+                emoji = emoji_map.get(rating_num, "")
+                
+                await query.edit_message_text(
+                    f"✅ Thanks for sharing! Logged: {emoji} {mood_description}\n\n"
+                    f"Take care of your skin today! 💚"
+                )
+            else:
+                await query.edit_message_text(
+                    "❌ Sorry, there was an error logging your mood. Please try again later."
+                )
+            return
 
     def _reminder_time_keyboard(self) -> InlineKeyboardMarkup:
         """Build keyboard with common reminder time options."""

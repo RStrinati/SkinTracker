@@ -505,3 +505,96 @@ class Database:
         
         total_severity = sum(log.get('severity', 0) for log in symptom_logs)
         return round(total_severity / len(symptom_logs), 2)
+
+    async def log_daily_mood(self, telegram_id: int, mood_rating: int, mood_description: str) -> bool:
+        """Log a daily mood/feeling rating from reminder response."""
+        try:
+            user = await self.get_user(telegram_id)
+            if not user:
+                logger.error(f"User not found for telegram_id: {telegram_id}")
+                return False
+
+            user_id = user['id']
+            
+            # Insert mood log
+            result = self.client.table('daily_mood_logs').insert({
+                'user_id': user_id,
+                'mood_rating': mood_rating,
+                'mood_description': mood_description
+            }).execute()
+            
+            logger.info(f"Logged daily mood for user {telegram_id}: {mood_description} ({mood_rating})")
+            return True
+            
+        except Exception as e:
+            logger.error(f"Error logging daily mood for user {telegram_id}: {e}")
+            return False
+
+    async def get_recent_mood_logs(self, telegram_id: int, days: int = 30) -> List[Dict[str, Any]]:
+        """Get recent daily mood logs for a user."""
+        try:
+            user = await self.get_user(telegram_id)
+            if not user:
+                return []
+
+            user_id = user['id']
+            cutoff_date = (datetime.now(dt_timezone.utc) - timedelta(days=days)).isoformat()
+            
+            def fetch_mood_logs():
+                return self.client.table('daily_mood_logs').select('*').eq('user_id', user_id).gte('logged_at', cutoff_date).order('logged_at', desc=True).execute()
+            
+            result = await asyncio.to_thread(fetch_mood_logs)
+            return result.data
+            
+        except Exception as e:
+            logger.error(f"Error getting mood logs for user {telegram_id}: {e}")
+            return []
+
+    async def get_mood_stats(self, telegram_id: int, days: int = 30) -> Dict[str, Any]:
+        """Get mood statistics for a user."""
+        try:
+            mood_logs = await self.get_recent_mood_logs(telegram_id, days)
+            
+            if not mood_logs:
+                return {
+                    'total_entries': 0,
+                    'average_rating': 0,
+                    'mood_distribution': {},
+                    'trend': 'No data'
+                }
+            
+            # Calculate statistics
+            total_entries = len(mood_logs)
+            average_rating = sum(log['mood_rating'] for log in mood_logs) / total_entries
+            
+            # Count mood distribution
+            mood_distribution = {}
+            for log in mood_logs:
+                desc = log['mood_description']
+                mood_distribution[desc] = mood_distribution.get(desc, 0) + 1
+            
+            # Calculate trend (recent vs older entries)
+            half_point = total_entries // 2
+            if total_entries >= 4:
+                recent_avg = sum(log['mood_rating'] for log in mood_logs[:half_point]) / half_point
+                older_avg = sum(log['mood_rating'] for log in mood_logs[half_point:]) / (total_entries - half_point)
+                
+                if recent_avg > older_avg + 0.3:
+                    trend = 'Improving'
+                elif recent_avg < older_avg - 0.3:
+                    trend = 'Declining'
+                else:
+                    trend = 'Stable'
+            else:
+                trend = 'Insufficient data'
+            
+            return {
+                'total_entries': total_entries,
+                'average_rating': round(average_rating, 2),
+                'mood_distribution': mood_distribution,
+                'trend': trend
+            }
+            
+        except Exception as e:
+            logger.error(f"Error getting mood stats for user {telegram_id}: {e}")
+            return {}

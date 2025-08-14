@@ -120,19 +120,6 @@ class ReminderScheduler:
             self.scheduler.remove_job(job_id)
             self.logger.info("Removed daily reminder for chat %s", chat_id)
 
-    def remove_reminder(self, chat_id: int) -> None:
-        """Remove a user's daily reminder.
-
-        Parameters
-        ----------
-        chat_id: int
-            Telegram chat identifier of the reminder to remove.
-        """
-        job_id = f"reminder_{chat_id}"
-        if self.scheduler.get_job(job_id):
-            self.scheduler.remove_job(job_id)
-            self.logger.info("Removed daily reminder for chat %s", chat_id)
-
     def shutdown(self) -> None:
         """Shutdown the underlying APScheduler instance."""
         self.scheduler.shutdown(wait=False)
