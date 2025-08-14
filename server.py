@@ -38,8 +38,18 @@ class JsonFormatter(logging.Formatter):
 
 handler = logging.StreamHandler()
 handler.setFormatter(JsonFormatter())
+
+# Custom filter to exclude watchfiles.main logs from error.log
+class ExcludeWatchfilesFilter(logging.Filter):
+    def filter(self, record):
+        return record.name != "watchfiles.main"
+
+file_handler = logging.FileHandler('error.log', encoding='utf-8')
+file_handler.setFormatter(JsonFormatter())
+file_handler.addFilter(ExcludeWatchfilesFilter())
+
 root_logger = logging.getLogger()
-root_logger.handlers = [handler]
+root_logger.handlers = [handler, file_handler]
 root_logger.setLevel(logging.INFO)
 logger = logging.getLogger(__name__)
 

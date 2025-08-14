@@ -209,8 +209,7 @@ Ready to start your skin health journey? Use /log to begin! ✨
 
             
         except Exception as e:
-            logger.error(f"Error in start command: {e}")
-            traceback.print_exc()
+            logger.exception("Error in start command")
             await update.message.reply_text(
                 "Sorry, there was an error registering you. Please try again."
             )
@@ -263,7 +262,7 @@ Ready to start your skin health journey? Use /log to begin! ✨
             await self.send_main_menu(update)
 
         except Exception as e:
-            logger.error(f"Error generating summary: {e}")
+            logger.exception("Error generating summary")
             message = update.message or update.callback_query.message
             await message.reply_text(
                 "Sorry, I couldn't generate your summary right now. Please try again later."
@@ -286,7 +285,7 @@ Ready to start your skin health journey? Use /log to begin! ✨
             await message.reply_text(text, parse_mode=ParseMode.MARKDOWN)
             await self.send_main_menu(update)
         except Exception as e:
-            logger.error(f"Error getting progress: {e}")
+            logger.exception("Error getting progress")
             message = update.message or update.callback_query.message
             await message.reply_text("Sorry, I couldn't load your progress right now.")
             await self.send_main_menu(update)
@@ -580,7 +579,7 @@ Track consistently for best results! 🌟
                 "Use /log to record more or /summary for insights!"
             )
         except Exception as e:
-            logger.error(f"Error logging product: {e}")
+            logger.exception("Error logging product")
             await query.edit_message_text("Sorry, there was an error logging your product.")
 
     async def _log_trigger(self, query, user_id: int, trigger_name: str):
@@ -592,7 +591,7 @@ Track consistently for best results! 🌟
                 "Use /log to record more or /summary for insights!"
             )
         except Exception as e:
-            logger.error(f"Error logging trigger: {e}")
+            logger.exception("Error logging trigger")
             await query.edit_message_text("Sorry, there was an error logging your trigger.")
 
     async def handle_photo(self, update: Update, context):
@@ -603,44 +602,35 @@ Track consistently for best results! 🌟
         try:
             # Get file info
             file = await context.bot.get_file(photo.file_id)
-
+            logger.info(f"[Photo] Downloading file for user {user_id}, file_id: {photo.file_id}")
 
             # Upload to Supabase storage and get local temp path and image id
             photo_url, temp_path, image_id = await self.database.save_photo(user_id, file)
+            logger.info(f"[Photo] Saved photo for user {user_id}: url={photo_url}, temp_path={temp_path}, image_id={image_id}")
 
             async def process_and_cleanup():
                 try:
+                    logger.info(f"[Photo] Starting analysis for user {user_id}, image_id={image_id}")
                     await asyncio.to_thread(
                         process_skin_image,
                         temp_path,
                         str(user_id),
                         image_id,
                         self.database.client,
+                        self.analysis_provider,
                     )
+                    logger.info(f"[Photo] Analysis complete for user {user_id}, image_id={image_id}")
+                except Exception as analysis_error:
+                    logger.exception(f"[Photo] Error during analysis for user {user_id}, image_id={image_id}")
                 finally:
                     try:
                         os.unlink(temp_path)
-                        logger.info("[%s] Temporary file deleted: %s", user_id, temp_path)
+                        logger.info(f"[{user_id}] Temporary file deleted: {temp_path}")
                     except Exception as cleanup_error:
-                        logger.warning(
-                            "[%s] Could not delete temp file %s: %s",
-                            user_id,
-                            temp_path,
-                            cleanup_error,
-                        )
+                        logger.warning(f"[{user_id}] Could not delete temp file {temp_path}: {cleanup_error}")
 
             # Offload processing to a background task
-            asyncio.create_task(
-                asyncio.to_thread(
-                    process_skin_image,
-                    temp_path,
-                    str(user_id),
-                    image_id,
-                    self.database.client,
-                    self.analysis_provider,
-                )
-            )
-
+            asyncio.create_task(process_and_cleanup())
 
             # Save photo log without AI analysis
             await self.database.log_photo(user_id, photo_url)
@@ -652,7 +642,7 @@ Track consistently for best results! 🌟
             await self.send_main_menu(update)
 
         except Exception as e:
-            logger.error(f"Error handling photo: {e}")
+            logger.exception("Error handling photo")
             await update.message.reply_text(
                 "Sorry, there was an error processing your photo. Please try again."
             )

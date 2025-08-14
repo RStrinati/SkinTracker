@@ -1,6 +1,9 @@
+from __future__ import annotations
+import logging
+logger = logging.getLogger(__name__)
 """Skin image analysis utilities with pluggable face providers."""
 
-from __future__ import annotations
+
 
 from datetime import datetime, timezone
 from pathlib import Path
@@ -79,25 +82,31 @@ def process_skin_image(
 ) -> Optional[Dict[str, object]]:
     """Process a skin image and store KPI results."""
 
-    if cv2 is None:
-        raise RuntimeError("OpenCV must be installed to use this function")
+    try:
+        if cv2 is None:
+            logger.error("OpenCV is not installed.")
+            raise RuntimeError("OpenCV must be installed to use this function")
 
-    if provider is None:
-        from analysis_providers.insightface_provider import InsightFaceProvider
+        if provider is None:
+            from analysis_providers.insightface_provider import InsightFaceProvider
+            provider = InsightFaceProvider()
 
-        provider = InsightFaceProvider()
+        img_path = Path(image_path)
+        image = cv2.imread(str(img_path))
+        if image is None:
+            logger.error(f"Image not found: {image_path}")
+            raise FileNotFoundError(f"Image not found: {image_path}")
 
-    img_path = Path(image_path)
-    image = cv2.imread(str(img_path))
-    if image is None:
-        raise FileNotFoundError(f"Image not found: {image_path}")
-
-    analysis = provider.analyze(img_path)
-    if analysis.get("face_count", 0) == 0:
-        return None
-    face = analysis["faces"][0]
-    bbox = np.array(face["bbox_xyxy"], dtype=np.float32)
-    landmarks = np.array(face["landmarks_5"], dtype=np.float32)
+        analysis = provider.analyze(img_path)
+        if analysis.get("face_count", 0) == 0:
+            logger.warning(f"No face detected in image: {image_path}")
+            return None
+        face = analysis["faces"][0]
+        bbox = np.array(face["bbox_xyxy"], dtype=np.float32)
+        landmarks = np.array(face["landmarks_5"], dtype=np.float32)
+    except Exception as e:
+        logger.exception(f"Error in process_skin_image for image {image_path}")
+        raise
 
     normalized, points, face_mask = align_face(image, bbox, landmarks)
     blemish_mask, blemish_area, face_area, percent_blemished = detect_blemishes(

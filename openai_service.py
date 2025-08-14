@@ -59,8 +59,8 @@ Limit response to 300-400 words.
             return summary
             
         except Exception as e:
-            logger.error(f"Error generating summary: {e}")
-            raise e
+            logger.exception("Error generating summary")
+            raise
 
     async def analyze_photo(self, photo_url: str) -> str:
         """Analyze skin photo for basic observations."""
@@ -94,7 +94,7 @@ Remember: This is not medical advice, just general observations for tracking pur
             return analysis
             
         except Exception as e:
-            logger.error(f"Error analyzing photo: {e}")
+            logger.exception("Error analyzing photo")
             return "Photo uploaded successfully! Continue tracking for personalized insights."
 
     async def analyze_ingredients(
@@ -121,7 +121,7 @@ Remember: This is not medical advice, just general observations for tracking pur
             )
             return response.choices[0].message.content
         except Exception as e:
-            logger.error(f"Error analyzing ingredients: {e}")
+            logger.exception("Error analyzing ingredients")
             return "Unable to analyze ingredients right now."
 
     async def answer_skin_question(self, question: str, user_logs: Dict[str, List[Dict[str, Any]]]) -> str:
@@ -158,7 +158,7 @@ Important: This is for tracking purposes only, not medical advice.
             return answer
             
         except Exception as e:
-            logger.error(f"Error answering question: {e}")
+            logger.exception("Error answering question")
             return "I couldn't answer your question right now. Please try again later."
 
     async def generate_product_recommendations(self, user_logs: Dict[str, List[Dict[str, Any]]]) -> str:
@@ -197,7 +197,7 @@ Remember: These are general suggestions, not medical advice.
             return recommendations
             
         except Exception as e:
-            logger.error(f"Error generating recommendations: {e}")
+            logger.exception("Error generating recommendations")
             return "I couldn't generate recommendations right now. Please try again later."
 
     def _prepare_logs_for_analysis(self, user_logs: Dict[str, List[Dict[str, Any]]]) -> str:

@@ -39,11 +39,11 @@ class StorageService:
                 await file.download_to_drive(temp_path)
                 logger.info("[%s] Photo downloaded to temp: %s", user_id, temp_path)
             except Exception as download_error:
-                logger.error("[%s] Error downloading photo: %s", user_id, download_error)
+                logger.exception(f"[{user_id}] Error downloading photo to {temp_path}")
                 try:
                     os.unlink(temp_path)
                 except Exception:
-                    pass
+                    logger.warning(f"[{user_id}] Could not delete temp file {temp_path} after download error.")
                 raise
 
         try:
@@ -52,7 +52,7 @@ class StorageService:
             img.save(temp_path, optimize=True, quality=85)
             logger.info("[%s] Image resized and optimized", user_id)
         except Exception as resize_error:
-            logger.warning("[%s] Could not resize image: %s", user_id, resize_error)
+            logger.exception(f"[{user_id}] Could not resize image {temp_path}")
 
         logger.info("[%s] Uploading to Supabase storage...", user_id)
         try:
@@ -70,14 +70,14 @@ class StorageService:
                 try:
                     os.unlink(temp_path)
                 except Exception:
-                    pass
+                    logger.warning(f"[{user_id}] Could not delete temp file {temp_path} after upload error.")
                 raise Exception(f"Upload failed: {response.error}")
         except Exception as upload_error:
-            logger.error("[%s] Error uploading to Supabase: %s", user_id, upload_error)
+            logger.exception(f"[{user_id}] Error uploading to Supabase: {filename}")
             try:
                 os.unlink(temp_path)
             except Exception:
-                pass
+                logger.warning(f"[{user_id}] Could not delete temp file {temp_path} after upload exception.")
             raise
 
 

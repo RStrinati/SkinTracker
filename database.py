@@ -68,7 +68,7 @@ class Database:
             )
             logger.info("Database connection established successfully")
         except Exception as e:
-            logger.error(f"Database initialization failed: {e}")
+            logger.exception("Database initialization failed")
             raise
 
     async def close(self):
@@ -139,7 +139,7 @@ class Database:
                 return response.data[0]
                 
         except Exception as e:
-            logger.error(f"Error creating/updating user {telegram_id}: {e}")
+            logger.exception(f"Error creating/updating user {telegram_id}")
             raise
 
     async def get_user_by_telegram_id(self, telegram_id: int) -> Optional[Dict[str, Any]]:
@@ -150,7 +150,7 @@ class Database:
             )
             return response.data[0] if response.data else None
         except Exception as e:
-            logger.error(f"Error getting user {telegram_id}: {e}")
+            logger.exception(f"Error getting user {telegram_id}")
             return None
 
     async def update_user_reminder(
@@ -175,7 +175,7 @@ class Database:
             logger.info(f"Updated reminder time for user {telegram_id} to {reminder_time}")
             return response.data[0]
         except Exception as e:
-            logger.error(f"Error updating reminder time for user {telegram_id}: {e}")
+            logger.exception(f"Error updating reminder time for user {telegram_id}")
             raise
 
     async def get_users_with_reminders(self) -> List[Dict[str, Any]]:
@@ -189,7 +189,7 @@ class Database:
             )
             return response.data or []
         except Exception as e:
-            logger.error(f"Error fetching user reminders: {e}")
+            logger.exception("Error fetching user reminders")
             return []
 
     async def get_products(self, user_id: int) -> List[Dict[str, Any]]:
