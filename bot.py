@@ -437,7 +437,7 @@ Ready to start your skin health journey? Use /log to begin! ✨
             condition_text = "No conditions set."
 
         # Get current reminder settings
-        user = await self.database.get_user(user_id)
+        user = await self.database.get_user_by_telegram_id(user_id)
         reminder_time = user.get('reminder_time', '09:00') if user else '09:00'
         
         keyboard = [
@@ -479,7 +479,10 @@ Ready to start your skin health journey? Use /log to begin! ✨
 
     async def _show_product_management(self, query, context, user_id):
         """Show product management options."""
-        products = await self.database.get_products(user_id)
+        all_products = await self.database.get_products(user_id)
+        
+        # Filter to only show user-specific products (not global ones)
+        products = [p for p in all_products if not p.get('is_global', True)]
         
         if not products:
             await query.edit_message_text(
@@ -501,7 +504,7 @@ Ready to start your skin health journey? Use /log to begin! ✨
         reply_markup = InlineKeyboardMarkup(keyboard)
         
         await query.edit_message_text(
-            "🏷️ *Product Management*\n\nSelect a product to rename or delete:",
+            f"🏷️ *Product Management*\n\nSelect a product to rename or delete ({len(products)} custom products):",
             parse_mode=ParseMode.MARKDOWN,
             reply_markup=reply_markup
         )
