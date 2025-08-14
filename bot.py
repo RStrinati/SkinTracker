@@ -436,11 +436,22 @@ Ready to start your skin health journey? Use /log to begin! ✨
         else:
             condition_text = "No conditions set."
 
-        keyboard = [[InlineKeyboardButton("➕ Add Condition", callback_data="settings_add_condition")]]
+        # Get current reminder settings
+        user = await self.database.get_user(user_id)
+        reminder_time = user.get('reminder_time', '09:00') if user else '09:00'
+        
+        keyboard = [
+            [InlineKeyboardButton("➕ Add Condition", callback_data="settings_add_condition")],
+            [InlineKeyboardButton("⏰ Update Reminder Time", callback_data="settings_reminder")],
+            [InlineKeyboardButton("🏷️ Manage Products", callback_data="settings_products")],
+            [InlineKeyboardButton("🗑️ Delete Data", callback_data="settings_delete_data")],
+        ]
         reply_markup = InlineKeyboardMarkup(keyboard)
         message = update.message or update.callback_query.message
         await message.reply_text(
-            f"⚙️ *Settings*\n\n*Your Conditions:*\n{condition_text}",
+            f"⚙️ *Settings*\n\n"
+            f"*Current Reminder:* {reminder_time}\n\n"
+            f"*Your Conditions:*\n{condition_text}",
             parse_mode=ParseMode.MARKDOWN,
             reply_markup=reply_markup,
         )
@@ -448,6 +459,84 @@ Ready to start your skin health journey? Use /log to begin! ✨
     async def settings_command(self, update: Update, context):
         """Handle /settings command."""
         await self._show_settings(update, context)
+
+    async def _show_reminder_settings(self, query, context):
+        """Show reminder time settings."""
+        keyboard = [
+            [InlineKeyboardButton("🌅 09:00", callback_data="set_reminder_09:00")],
+            [InlineKeyboardButton("🏙️ 12:00", callback_data="set_reminder_12:00")],
+            [InlineKeyboardButton("🌆 18:00", callback_data="set_reminder_18:00")],
+            [InlineKeyboardButton("🌙 21:00", callback_data="set_reminder_21:00")],
+            [InlineKeyboardButton("❌ Disable", callback_data="set_reminder_disable")],
+            [InlineKeyboardButton("⬅️ Back", callback_data="settings_back")]
+        ]
+        reply_markup = InlineKeyboardMarkup(keyboard)
+        await query.edit_message_text(
+            "⏰ *Reminder Settings*\n\nChoose when you'd like to receive daily skin check-in reminders:",
+            parse_mode=ParseMode.MARKDOWN,
+            reply_markup=reply_markup
+        )
+
+    async def _show_product_management(self, query, context, user_id):
+        """Show product management options."""
+        products = await self.database.get_products(user_id)
+        
+        if not products:
+            await query.edit_message_text(
+                "🏷️ *Product Management*\n\nNo custom products found. Products are automatically added when you log them.\n\n"
+                "Use the main menu to log products, and they'll appear here for management.",
+                parse_mode=ParseMode.MARKDOWN,
+                reply_markup=InlineKeyboardMarkup([[InlineKeyboardButton("⬅️ Back", callback_data="settings_back")]])
+            )
+            return
+
+        keyboard = []
+        for product in products[:8]:  # Limit to 8 products to avoid button limit
+            keyboard.append([InlineKeyboardButton(
+                f"✏️ {product['name']}", 
+                callback_data=f"edit_product_{product['name'].replace(' ', '_')}"
+            )])
+        
+        keyboard.append([InlineKeyboardButton("⬅️ Back", callback_data="settings_back")])
+        reply_markup = InlineKeyboardMarkup(keyboard)
+        
+        await query.edit_message_text(
+            "🏷️ *Product Management*\n\nSelect a product to rename or delete:",
+            parse_mode=ParseMode.MARKDOWN,
+            reply_markup=reply_markup
+        )
+
+    async def _show_delete_data_options(self, query, context, user_id):
+        """Show data deletion options with counts."""
+        # Get data summary
+        summary = await self.database.get_data_summary(user_id)
+        
+        text = "🗑️ *Delete Data*\n\n"
+        text += "⚠️ *Warning: This action cannot be undone!*\n\n"
+        text += "*Your current data:*\n"
+        
+        data_labels = {
+            'photos': '📸 Photos',
+            'products': '🧴 Product logs', 
+            'triggers': '⚠️ Trigger logs',
+            'symptoms': '🏥 Symptom logs',
+            'moods': '😊 Daily moods',
+            'kpis': '📊 Skin analysis'
+        }
+        
+        for data_type, label in data_labels.items():
+            count = summary.get(data_type, 0)
+            text += f"• {label}: {count}\n"
+        
+        keyboard = [
+            [InlineKeyboardButton("📸 Delete Photos Only", callback_data="delete_data_photos")],
+            [InlineKeyboardButton("📝 Delete Logs Only", callback_data="delete_data_logs")],
+            [InlineKeyboardButton("🗑️ Delete Everything", callback_data="delete_data_all")],
+            [InlineKeyboardButton("⬅️ Back", callback_data="settings_back")]
+        ]
+        reply_markup = InlineKeyboardMarkup(keyboard)
+        
+        await query.edit_message_text(text, parse_mode=ParseMode.MARKDOWN, reply_markup=reply_markup)
 
     async def help_command(self, update: Update, context):
         """Handle /help command - show help information."""
@@ -526,6 +615,21 @@ Track consistently for best results! 🌟
         if data == "settings_add_condition":
             context.user_data["awaiting_condition_name"] = True
             await query.edit_message_text("Please enter the condition name:")
+            return
+
+        if data == "settings_reminder":
+            # Show reminder time options
+            await self._show_reminder_settings(query, context)
+            return
+
+        if data == "settings_products":
+            # Show product management options
+            await self._show_product_management(query, context, user_id)
+            return
+
+        if data == "settings_delete_data":
+            # Show data deletion options
+            await self._show_delete_data_options(query, context, user_id)
             return
 
         if data.startswith("condition_type_"):
@@ -648,6 +752,122 @@ Track consistently for best results! 🌟
                 await query.edit_message_text(
                     "❌ Sorry, there was an error logging your mood. Please try again later."
                 )
+            return
+
+        # Settings handlers
+        if data == "settings_back":
+            await self._show_settings(update, context)
+            return
+
+        if data.startswith("set_reminder_"):
+            time_or_action = data.replace("set_reminder_", "")
+            if time_or_action == "disable":
+                # Disable reminders
+                if self.scheduler:
+                    self.scheduler.remove_reminder(user_id)
+                await self.database.update_user_reminder(user_id, None)
+                await query.edit_message_text("✅ Daily reminders disabled.")
+            else:
+                # Set new reminder time
+                await self.database.update_user_reminder(user_id, time_or_action)
+                if self.scheduler:
+                    self.scheduler.schedule_daily_reminder(user_id, time_or_action)
+                await query.edit_message_text(f"✅ Daily reminder set for {time_or_action}")
+            
+            # Return to settings after 2 seconds
+            await asyncio.sleep(2)
+            await self._show_settings(update, context)
+            return
+
+        if data.startswith("edit_product_"):
+            product_name = data.replace("edit_product_", "").replace("_", " ")
+            context.user_data["editing_product"] = product_name
+            keyboard = [
+                [InlineKeyboardButton("✏️ Rename", callback_data=f"rename_product_{product_name.replace(' ', '_')}")],
+                [InlineKeyboardButton("🗑️ Delete", callback_data=f"delete_product_{product_name.replace(' ', '_')}")],
+                [InlineKeyboardButton("⬅️ Back", callback_data="settings_products")]
+            ]
+            reply_markup = InlineKeyboardMarkup(keyboard)
+            await query.edit_message_text(
+                f"🏷️ *Product: {product_name}*\n\nWhat would you like to do?",
+                parse_mode=ParseMode.MARKDOWN,
+                reply_markup=reply_markup
+            )
+            return
+
+        if data.startswith("rename_product_"):
+            product_name = data.replace("rename_product_", "").replace("_", " ")
+            context.user_data["renaming_product"] = product_name
+            context.user_data["awaiting_new_product_name"] = True
+            await query.edit_message_text(f"✏️ Enter new name for '{product_name}':")
+            return
+
+        if data.startswith("delete_product_"):
+            product_name = data.replace("delete_product_", "").replace("_", " ")
+            success = await self.database.delete_product(user_id, product_name)
+            if success:
+                await query.edit_message_text(f"✅ Product '{product_name}' deleted.")
+            else:
+                await query.edit_message_text(f"❌ Failed to delete '{product_name}'.")
+            
+            await asyncio.sleep(2)
+            await self._show_product_management(query, context, user_id)
+            return
+
+        if data.startswith("delete_data_"):
+            data_type = data.replace("delete_data_", "")
+            
+            if data_type == "photos":
+                types_to_delete = ["photos", "kpis"]
+                confirmation_text = "📸 Delete all photos and skin analysis data?"
+            elif data_type == "logs":
+                types_to_delete = ["products", "triggers", "symptoms", "moods"]
+                confirmation_text = "📝 Delete all logging data (products, triggers, symptoms, moods)?"
+            elif data_type == "all":
+                types_to_delete = ["photos", "products", "triggers", "symptoms", "moods", "kpis"]
+                confirmation_text = "🗑️ Delete ALL data? This cannot be undone!"
+            else:
+                return
+
+            # Show confirmation
+            keyboard = [
+                [InlineKeyboardButton("✅ Yes, Delete", callback_data=f"confirm_delete_{data_type}")],
+                [InlineKeyboardButton("❌ Cancel", callback_data="settings_delete_data")]
+            ]
+            reply_markup = InlineKeyboardMarkup(keyboard)
+            await query.edit_message_text(
+                f"⚠️ *Confirmation Required*\n\n{confirmation_text}",
+                parse_mode=ParseMode.MARKDOWN,
+                reply_markup=reply_markup
+            )
+            return
+
+        if data.startswith("confirm_delete_"):
+            data_type = data.replace("confirm_delete_", "")
+            
+            # Determine what to delete
+            if data_type == "photos":
+                types_to_delete = ["photos", "kpis"]
+            elif data_type == "logs":
+                types_to_delete = ["products", "triggers", "symptoms", "moods"]
+            elif data_type == "all":
+                types_to_delete = ["photos", "products", "triggers", "symptoms", "moods", "kpis"]
+            else:
+                return
+
+            # Perform deletion
+            results = await self.database.delete_all_user_data(user_id, types_to_delete)
+            
+            success_count = sum(1 for success in results.values() if success)
+            total_count = len(results)
+            
+            if success_count == total_count:
+                await query.edit_message_text("✅ Data deleted successfully!")
+            else:
+                await query.edit_message_text(f"⚠️ Partial success: {success_count}/{total_count} deletions completed.")
+            
+            await asyncio.sleep(2)
+            await self._show_settings(update, context)
             return
 
     def _reminder_time_keyboard(self) -> InlineKeyboardMarkup:
@@ -875,6 +1095,36 @@ Track consistently for best results! 🌟
                 reply_markup=InlineKeyboardMarkup(keyboard),
             )
             context.user_data["awaiting_condition_type"] = True
+        elif context.user_data.get("awaiting_new_product_name"):
+            # Handle product renaming
+            old_name = context.user_data.get("renaming_product")
+            new_name = text.strip()
+            
+            if old_name and new_name:
+                success = await self.database.update_product_name(user_id, old_name, new_name)
+                if success:
+                    await update.message.reply_text(f"✅ Product renamed: '{old_name}' → '{new_name}'")
+                else:
+                    await update.message.reply_text(f"❌ Failed to rename product '{old_name}'")
+            else:
+                await update.message.reply_text("❌ Invalid product name")
+            
+            # Clean up and return to product management
+            context.user_data.pop("awaiting_new_product_name", None)
+            context.user_data.pop("renaming_product", None)
+            
+            # Show updated product list after a short delay
+            await asyncio.sleep(1)
+            # Create a fake query object to reuse the existing method
+            class FakeQuery:
+                def __init__(self, message):
+                    self.message = message
+                
+                async def edit_message_text(self, text, parse_mode=None, reply_markup=None):
+                    await self.message.reply_text(text, parse_mode=parse_mode, reply_markup=reply_markup)
+            
+            fake_query = FakeQuery(update.message)
+            await self._show_product_management(fake_query, context, user_id)
         else:
             await update.message.reply_text("I'm not sure what you mean. Use /help to see available commands!")
 

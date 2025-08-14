@@ -509,7 +509,7 @@ class Database:
     async def log_daily_mood(self, telegram_id: int, mood_rating: int, mood_description: str) -> bool:
         """Log a daily mood/feeling rating from reminder response."""
         try:
-            user = await self.get_user(telegram_id)
+            user = await self.get_user_by_telegram_id(telegram_id)
             if not user:
                 logger.error(f"User not found for telegram_id: {telegram_id}")
                 return False
@@ -533,7 +533,7 @@ class Database:
     async def get_recent_mood_logs(self, telegram_id: int, days: int = 30) -> List[Dict[str, Any]]:
         """Get recent daily mood logs for a user."""
         try:
-            user = await self.get_user(telegram_id)
+            user = await self.get_user_by_telegram_id(telegram_id)
             if not user:
                 return []
 
@@ -597,4 +597,124 @@ class Database:
             
         except Exception as e:
             logger.error(f"Error getting mood stats for user {telegram_id}: {e}")
+            return {}
+
+    async def update_product_name(self, telegram_id: int, old_name: str, new_name: str) -> bool:
+        """Update a product name for a user."""
+        try:
+            user = await self.get_user_by_telegram_id(telegram_id)
+            if not user:
+                logger.error(f"User not found for telegram_id: {telegram_id}")
+                return False
+
+            user_id = user['id']
+            
+            # Update in products table
+            result = self.client.table('products').update({
+                'name': new_name
+            }).eq('user_id', user_id).eq('name', old_name).execute()
+            
+            logger.info(f"Updated product name for user {telegram_id}: {old_name} -> {new_name}")
+            return True
+            
+        except Exception as e:
+            logger.error(f"Error updating product name for user {telegram_id}: {e}")
+            return False
+
+    async def delete_product(self, telegram_id: int, product_name: str) -> bool:
+        """Delete a product for a user."""
+        try:
+            user = await self.get_user_by_telegram_id(telegram_id)
+            if not user:
+                logger.error(f"User not found for telegram_id: {telegram_id}")
+                return False
+
+            user_id = user['id']
+            
+            # Delete from products table
+            result = self.client.table('products').delete().eq('user_id', user_id).eq('name', product_name).execute()
+            
+            logger.info(f"Deleted product for user {telegram_id}: {product_name}")
+            return True
+            
+        except Exception as e:
+            logger.error(f"Error deleting product for user {telegram_id}: {e}")
+            return False
+
+    async def delete_all_user_data(self, telegram_id: int, data_types: List[str]) -> Dict[str, bool]:
+        """Delete specified types of user data."""
+        try:
+            user = await self.get_user_by_telegram_id(telegram_id)
+            if not user:
+                logger.error(f"User not found for telegram_id: {telegram_id}")
+                return {}
+
+            user_id = user['id']
+            results = {}
+            
+            # Define table mappings
+            table_mapping = {
+                'photos': 'photo_logs',
+                'products': 'product_logs', 
+                'triggers': 'trigger_logs',
+                'symptoms': 'symptom_logs',
+                'moods': 'daily_mood_logs',
+                'kpis': 'skin_kpis'
+            }
+            
+            for data_type in data_types:
+                if data_type in table_mapping:
+                    table_name = table_mapping[data_type]
+                    try:
+                        self.client.table(table_name).delete().eq('user_id', user_id).execute()
+                        results[data_type] = True
+                        logger.info(f"Deleted {data_type} data for user {telegram_id}")
+                    except Exception as e:
+                        logger.error(f"Error deleting {data_type} for user {telegram_id}: {e}")
+                        results[data_type] = False
+                else:
+                    results[data_type] = False
+            
+            return results
+            
+        except Exception as e:
+            logger.error(f"Error deleting data for user {telegram_id}: {e}")
+            return {}
+
+    async def get_data_summary(self, telegram_id: int) -> Dict[str, int]:
+        """Get a summary of how much data exists for each type."""
+        try:
+            user = await self.get_user_by_telegram_id(telegram_id)
+            if not user:
+                return {}
+
+            user_id = user['id']
+            
+            # Count data in each table
+            def count_table_data(table_name):
+                result = self.client.table(table_name).select('id', count='exact').eq('user_id', user_id).execute()
+                return result.count if hasattr(result, 'count') else len(result.data)
+            
+            summary = {}
+            tables = {
+                'photos': 'photo_logs',
+                'products': 'product_logs',
+                'triggers': 'trigger_logs', 
+                'symptoms': 'symptom_logs',
+                'moods': 'daily_mood_logs',
+                'kpis': 'skin_kpis'
+            }
+            
+            for data_type, table_name in tables.items():
+                try:
+                    count = await asyncio.to_thread(count_table_data, table_name)
+                    summary[data_type] = count
+                except Exception as e:
+                    logger.error(f"Error counting {data_type}: {e}")
+                    summary[data_type] = 0
+            
+            return summary
+            
+        except Exception as e:
+            logger.error(f"Error getting data summary for user {telegram_id}: {e}")
             return {}
