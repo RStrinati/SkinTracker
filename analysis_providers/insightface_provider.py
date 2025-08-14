@@ -1,6 +1,5 @@
 from __future__ import annotations
 
-import os
 from pathlib import Path
 from typing import Any, Dict, List
 
@@ -23,30 +22,11 @@ class InsightFaceProvider(FaceAnalysisProvider):
         )
         ctx_id = 0 if providers[0] != "CPUExecutionProvider" else -1
         try:
-            # Print initialization info for debugging
-            print(f"Available ONNX providers: {ort.get_available_providers()}")
-            print(f"Using provider: {providers[0]}")
-            print(f"Context ID: {ctx_id}")
-            
-            self.app = FaceAnalysis(
-                name="buffalo_l", 
-                root="./analysis_providers/models",  # Specify model directory
-                providers=providers,
-                allowed_modules=['detection', 'recognition', 'genderage']  # Specify needed modules
-            )
-            
-            # Create models directory if it doesn't exist
-            os.makedirs("./analysis_providers/models", exist_ok=True)
-            
+            self.app = FaceAnalysis(name="buffalo_l", providers=providers)
             # Prepare with reasonable detection size
             self.app.prepare(ctx_id=ctx_id, det_size=(640, 640))
-            
-            print("InsightFace initialization successful")
-        except Exception as exc:
-            print(f"InsightFace initialization error: {exc}")
-            import traceback
-            traceback.print_exc()
-            raise RuntimeError(f"InsightFace initialization failed: {exc}") from exc
+        except Exception as exc:  # pragma: no cover - initialization failures
+            raise RuntimeError("InsightFace initialization failed") from exc
 
     def _resize_image(self, img: np.ndarray) -> np.ndarray:
         """Resize image so that the longest side is at most 1280 px."""
