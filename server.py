@@ -1,5 +1,6 @@
 from fastapi import FastAPI, Request, HTTPException, BackgroundTasks, APIRouter
 from fastapi.responses import JSONResponse
+from fastapi.staticfiles import StaticFiles
 from pydantic import BaseModel
 from typing import List, Optional
 import asyncio
@@ -16,6 +17,7 @@ from dotenv import load_dotenv
 
 from bot import SkinHealthBot
 from api.routers.analysis import router as analysis_router
+from api.timeline import router as timeline_router
 from telegram import Update
 
 # Load environment variables from .env file
@@ -321,6 +323,17 @@ async def delete_webhook():
         raise HTTPException(status_code=500, detail="Failed to delete webhook")
 
 app.include_router(api_router)
+app.include_router(timeline_router)
+
+# Mount static files for the timeline web app
+app.mount("/public", StaticFiles(directory="public"), name="public")
+
+# Timeline page route
+@app.get("/timeline")
+async def timeline_page():
+    """Serve the timeline web app."""
+    from fastapi.responses import FileResponse
+    return FileResponse("public/timeline.html")
 
 if __name__ == "__main__":
     import uvicorn

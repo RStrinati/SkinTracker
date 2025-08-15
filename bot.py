@@ -76,6 +76,12 @@ class SkinHealthBot:
         self.application.add_handler(CommandHandler("settings", self.settings_command))
         self.application.add_handler(CommandHandler("help", self.help_command))
         
+        # Timeline and quick logging commands
+        self.application.add_handler(CommandHandler("timeline", self.timeline_command))
+        self.application.add_handler(CommandHandler("trigger", self.quick_trigger_command))
+        self.application.add_handler(CommandHandler("symptom", self.quick_symptom_command))
+        self.application.add_handler(CommandHandler("product", self.quick_product_command))
+        
         # Callback query handlers
         self.application.add_handler(CallbackQueryHandler(self.handle_callback))
         
@@ -89,6 +95,7 @@ class SkinHealthBot:
         """Configure bot command list for quick access."""
         commands = [
             BotCommand("log", "📝 Log an entry"),
+            BotCommand("timeline", "📈 View timeline"),
             BotCommand("progress", "📊 View progress"),
             BotCommand("skin", "🔬 Skin analysis"),
             BotCommand("settings", "⚙️ Settings"),
@@ -1130,4 +1137,162 @@ Track consistently for best results! 🌟
             await self._show_product_management(fake_query, context, user_id)
         else:
             await update.message.reply_text("I'm not sure what you mean. Use /help to see available commands!")
+
+    # Timeline and Quick Logging Commands
+    
+    async def timeline_command(self, update: Update, context):
+        """Handle /timeline command - show timeline web app."""
+        try:
+            # Create timeline web app URL
+            base_url = os.getenv('BASE_URL', 'https://your-domain.com')
+            timeline_url = f"{base_url}/timeline"
+            
+            # Create inline keyboard with Web App button
+            from telegram import InlineKeyboardButton, InlineKeyboardMarkup, WebAppInfo
+            
+            keyboard = [
+                [InlineKeyboardButton("📈 Open Timeline", web_app=WebAppInfo(url=timeline_url))],
+                [InlineKeyboardButton("🔗 Open in Browser", url=timeline_url)]
+            ]
+            reply_markup = InlineKeyboardMarkup(keyboard)
+            
+            await update.message.reply_text(
+                "📈 *Your Skin Health Timeline*\n\n"
+                "View your complete skin health journey with:\n"
+                "• 📊 All symptoms, triggers, and treatments\n"
+                "• 🔍 AI insights on what's working\n"
+                "• 📈 Trends and patterns over time\n"
+                "• 📷 Photo timeline with analysis\n\n"
+                "Choose how to open your timeline:",
+                parse_mode=ParseMode.MARKDOWN,
+                reply_markup=reply_markup
+            )
+            
+        except Exception as e:
+            logger.error(f"Error in timeline command: {e}")
+            await update.message.reply_text("❌ Error opening timeline. Please try again later.")
+
+    async def quick_trigger_command(self, update: Update, context):
+        """Handle /trigger command for quick trigger logging."""
+        try:
+            user_id = update.effective_user.id
+            
+            # Parse command arguments
+            if context.args:
+                trigger_text = " ".join(context.args)
+                parts = trigger_text.split(' note:"')
+                trigger_name = parts[0].strip()
+                notes = parts[1].rstrip('"') if len(parts) > 1 else None
+                
+                # Log the trigger
+                await self.database.log_trigger(user_id, trigger_name, notes)
+                
+                response = f"✅ Trigger logged: *{trigger_name}*"
+                if notes:
+                    response += f"\nNote: _{notes}_"
+                
+                await update.message.reply_text(response, parse_mode=ParseMode.MARKDOWN)
+            else:
+                await update.message.reply_text(
+                    "🎯 *Quick Trigger Logging*\n\n"
+                    "Usage: `/trigger <trigger_name> note:\"<optional_note>\"`\n\n"
+                    "Examples:\n"
+                    "• `/trigger Sun exposure`\n"
+                    "• `/trigger Stress note:\"work deadline\"`\n"
+                    "• `/trigger Spicy food note:\"Thai restaurant\"`",
+                    parse_mode=ParseMode.MARKDOWN
+                )
+                
+        except Exception as e:
+            logger.error(f"Error in quick trigger command: {e}")
+            await update.message.reply_text("❌ Error logging trigger. Please try again.")
+
+    async def quick_symptom_command(self, update: Update, context):
+        """Handle /symptom command for quick symptom logging."""
+        try:
+            user_id = update.effective_user.id
+            
+            # Parse command arguments
+            if len(context.args) >= 2:
+                symptom_name = context.args[0]
+                try:
+                    severity = int(context.args[1])
+                    if severity < 1 or severity > 5:
+                        raise ValueError("Severity must be 1-5")
+                except ValueError:
+                    await update.message.reply_text(
+                        "❌ Invalid severity. Please use a number from 1 (mild) to 5 (severe)."
+                    )
+                    return
+                
+                # Check for notes
+                notes = None
+                if len(context.args) > 2:
+                    remaining_args = " ".join(context.args[2:])
+                    if remaining_args.startswith('note:"') and remaining_args.endswith('"'):
+                        notes = remaining_args[6:-1]  # Remove note:" and closing "
+                
+                # Log the symptom
+                await self.database.log_symptom(user_id, symptom_name, severity, notes)
+                
+                severity_emoji = ["", "😐", "😕", "😖", "😣", "😫"][severity]
+                response = f"✅ Symptom logged: *{symptom_name}* {severity_emoji} (Severity: {severity}/5)"
+                if notes:
+                    response += f"\nNote: _{notes}_"
+                
+                await update.message.reply_text(response, parse_mode=ParseMode.MARKDOWN)
+            else:
+                await update.message.reply_text(
+                    "🔥 *Quick Symptom Logging*\n\n"
+                    "Usage: `/symptom <name> <severity> note:\"<optional_note>\"`\n\n"
+                    "Severity Scale:\n"
+                    "• 1 😐 - Very mild\n"
+                    "• 2 😕 - Mild\n"
+                    "• 3 😖 - Moderate\n"
+                    "• 4 😣 - Severe\n"
+                    "• 5 😫 - Very severe\n\n"
+                    "Examples:\n"
+                    "• `/symptom Redness 3`\n"
+                    "• `/symptom Itching 4 note:\"couldn't sleep\"`",
+                    parse_mode=ParseMode.MARKDOWN
+                )
+                
+        except Exception as e:
+            logger.error(f"Error in quick symptom command: {e}")
+            await update.message.reply_text("❌ Error logging symptom. Please try again.")
+
+    async def quick_product_command(self, update: Update, context):
+        """Handle /product command for quick product logging."""
+        try:
+            user_id = update.effective_user.id
+            
+            # Parse command arguments
+            if context.args:
+                product_text = " ".join(context.args)
+                parts = product_text.split(' note:"')
+                product_name = parts[0].strip()
+                notes = parts[1].rstrip('"') if len(parts) > 1 else None
+                
+                # Log the product (effect defaults to "Applied")
+                await self.database.log_product(user_id, product_name, effect="Applied", notes=notes)
+                
+                response = f"✅ Product logged: *{product_name}*"
+                if notes:
+                    response += f"\nNote: _{notes}_"
+                
+                await update.message.reply_text(response, parse_mode=ParseMode.MARKDOWN)
+            else:
+                await update.message.reply_text(
+                    "💊 *Quick Product Logging*\n\n"
+                    "Usage: `/product <product_name> note:\"<optional_note>\"`\n\n"
+                    "Examples:\n"
+                    "• `/product Soolantra`\n"
+                    "• `/product Moisturizer note:\"evening routine\"`\n"
+                    "• `/product Sunscreen note:\"SPF 50\"`",
+                    parse_mode=ParseMode.MARKDOWN
+                )
+                
+        except Exception as e:
+            logger.error(f"Error in quick product command: {e}")
+            await update.message.reply_text("❌ Error logging product. Please try again.")
 

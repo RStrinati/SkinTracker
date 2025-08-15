@@ -1,0 +1,431 @@
+<!DOCTYPE html>
+<html lang="en">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <title>Skin Health Timeline</title>
+    <script src="https://unpkg.com/react@18/umd/react.development.js"></script>
+    <script src="https://unpkg.com/react-dom@18/umd/react-dom.development.js"></script>
+    <script src="https://unpkg.com/@babel/standalone/babel.min.js"></script>
+    <script src="https://telegram.org/js/telegram-web-app.js"></script>
+    <script src="https://cdn.tailwindcss.com"></script>
+    <style>
+      .timeline-container {
+        max-width: 1200px;
+        margin: 0 auto;
+        padding: 20px;
+      }
+      .event-item {
+        transition: all 0.2s ease;
+      }
+      .event-item:hover {
+        transform: translateY(-1px);
+        box-shadow: 0 4px 12px rgba(0, 0, 0, 0.1);
+      }
+    </style>
+  </head>
+  <body class="bg-gray-50">
+    <div id="timeline-root"></div>
+
+    <script type="text/babel">
+      const { useState, useEffect } = React;
+
+      const SkinTimeline = () => {
+        const [events, setEvents] = useState([]);
+        const [insights, setInsights] = useState({
+          triggers: [],
+          products: [],
+        });
+        const [loading, setLoading] = useState(true);
+        const [error, setError] = useState(null);
+        const [selectedLanes, setSelectedLanes] = useState([
+          "Symptoms",
+          "Products",
+          "Triggers",
+          "Photos",
+          "Notes",
+        ]);
+        const [dateRange, setDateRange] = useState({
+          from: new Date(Date.now() - 30 * 24 * 60 * 60 * 1000)
+            .toISOString()
+            .split("T")[0],
+          to: new Date().toISOString().split("T")[0],
+        });
+
+        // Get Telegram user ID
+        const getTelegramUserId = () => {
+          // Try WebApp first
+          if (window.Telegram?.WebApp?.initDataUnsafe?.user?.id) {
+            return window.Telegram.WebApp.initDataUnsafe.user.id;
+          }
+
+          // Fallback to URL params or demo user
+          const urlParams = new URLSearchParams(window.location.search);
+          return parseInt(urlParams.get("user_id") || "6865543260");
+        };
+
+        const fetchTimelineData = async () => {
+          try {
+            setLoading(true);
+            setError(null);
+            const userId = getTelegramUserId();
+
+            // Fetch timeline events
+            const timelineParams = new URLSearchParams({
+              telegram_id: userId.toString(),
+              from_date: new Date(dateRange.from + "T00:00:00Z").toISOString(),
+              to_date: new Date(dateRange.to + "T23:59:59Z").toISOString(),
+              limit: "200",
+            });
+
+            if (selectedLanes.length > 0) {
+              selectedLanes.forEach((lane) => {
+                timelineParams.append("lanes", lane);
+              });
+            }
+
+            console.log(
+              "Fetching timeline:",
+              `/api/v1/timeline/events?${timelineParams}`
+            );
+            const timelineResponse = await fetch(
+              `/api/v1/timeline/events?${timelineParams}`
+            );
+
+            if (!timelineResponse.ok) {
+              throw new Error(`Timeline API error: ${timelineResponse.status}`);
+            }
+
+            const timelineData = await timelineResponse.json();
+            setEvents(timelineData.events || []);
+
+            // Fetch insights
+            try {
+              const triggersResponse = await fetch(
+                `/api/v1/timeline/insights/triggers?telegram_id=${userId}`
+              );
+              const triggersData = triggersResponse.ok
+                ? await triggersResponse.json()
+                : [];
+
+              const productsResponse = await fetch(
+                `/api/v1/timeline/insights/products?telegram_id=${userId}`
+              );
+              const productsData = productsResponse.ok
+                ? await productsResponse.json()
+                : [];
+
+              setInsights({
+                triggers: triggersData,
+                products: productsData,
+              });
+            } catch (insightError) {
+              console.warn("Error fetching insights:", insightError);
+              // Continue with empty insights
+            }
+          } catch (error) {
+            console.error("Error fetching timeline data:", error);
+            setError(error.message);
+          } finally {
+            setLoading(false);
+          }
+        };
+
+        useEffect(() => {
+          fetchTimelineData();
+        }, [dateRange, selectedLanes]);
+
+        const formatDate = (dateStr) => {
+          return new Date(dateStr).toLocaleDateString("en-US", {
+            month: "short",
+            day: "numeric",
+            hour: "2-digit",
+            minute: "2-digit",
+          });
+        };
+
+        const getSeverityColor = (severity) => {
+          if (!severity) return "#e5e7eb";
+          const colors = [
+            "#10b981",
+            "#f59e0b",
+            "#ef4444",
+            "#dc2626",
+            "#991b1b",
+          ];
+          return colors[severity - 1] || "#e5e7eb";
+        };
+
+        const getLaneColor = (lane) => {
+          const colors = {
+            Symptoms: "#ef4444",
+            Products: "#10b981",
+            Triggers: "#f59e0b",
+            Photos: "#8b5cf6",
+            Notes: "#6b7280",
+          };
+          return colors[lane] || "#6b7280";
+        };
+
+        if (loading) {
+          return (
+            <div className="flex items-center justify-center min-h-screen">
+              <div className="text-center">
+                <div className="animate-spin rounded-full h-12 w-12 border-b-2 border-blue-500 mx-auto mb-4"></div>
+                <div className="text-lg">Loading timeline...</div>
+              </div>
+            </div>
+          );
+        }
+
+        if (error) {
+          return (
+            <div className="flex items-center justify-center min-h-screen">
+              <div className="text-center text-red-600">
+                <div className="text-lg mb-2">Error loading timeline</div>
+                <div className="text-sm">{error}</div>
+                <button
+                  onClick={() => window.location.reload()}
+                  className="mt-4 px-4 py-2 bg-blue-500 text-white rounded hover:bg-blue-600"
+                >
+                  Retry
+                </button>
+              </div>
+            </div>
+          );
+        }
+
+        return (
+          <div className="timeline-container">
+            <h1 className="text-3xl font-bold text-gray-900 mb-6">
+              Skin Health Timeline
+            </h1>
+
+            {/* Controls */}
+            <div className="mb-6 space-y-4 bg-white p-4 rounded-lg shadow">
+              {/* Date Range */}
+              <div className="flex gap-4 items-center flex-wrap">
+                <label className="text-sm font-medium">Date Range:</label>
+                <input
+                  type="date"
+                  value={dateRange.from}
+                  onChange={(e) =>
+                    setDateRange((prev) => ({ ...prev, from: e.target.value }))
+                  }
+                  className="border rounded px-3 py-1"
+                />
+                <span>to</span>
+                <input
+                  type="date"
+                  value={dateRange.to}
+                  onChange={(e) =>
+                    setDateRange((prev) => ({ ...prev, to: e.target.value }))
+                  }
+                  className="border rounded px-3 py-1"
+                />
+              </div>
+
+              {/* Lane Filters */}
+              <div>
+                <label className="text-sm font-medium block mb-2">Show:</label>
+                <div className="flex gap-3 flex-wrap">
+                  {["Symptoms", "Products", "Triggers", "Photos", "Notes"].map(
+                    (lane) => (
+                      <label
+                        key={lane}
+                        className="flex items-center gap-1 cursor-pointer"
+                      >
+                        <input
+                          type="checkbox"
+                          checked={selectedLanes.includes(lane)}
+                          onChange={(e) => {
+                            if (e.target.checked) {
+                              setSelectedLanes((prev) => [...prev, lane]);
+                            } else {
+                              setSelectedLanes((prev) =>
+                                prev.filter((l) => l !== lane)
+                              );
+                            }
+                          }}
+                          className="mr-1"
+                        />
+                        <span
+                          style={{ color: getLaneColor(lane) }}
+                          className="font-medium"
+                        >
+                          {lane}
+                        </span>
+                      </label>
+                    )
+                  )}
+                </div>
+              </div>
+            </div>
+
+            {/* Timeline Events */}
+            <div className="mb-8">
+              <h2 className="text-xl font-semibold mb-4">
+                Timeline ({events.length} events)
+              </h2>
+              <div className="bg-white rounded-lg shadow">
+                {events.length === 0 ? (
+                  <div className="p-8 text-center text-gray-500">
+                    No events found for the selected date range and filters.
+                  </div>
+                ) : (
+                  <div className="space-y-1 max-h-96 overflow-y-auto">
+                    {events.map((event) => (
+                      <div
+                        key={event.id}
+                        className="event-item flex items-center gap-4 p-3 border-b border-gray-100 hover:bg-gray-50"
+                      >
+                        <div
+                          className="w-3 h-3 rounded-full flex-shrink-0"
+                          style={{ backgroundColor: getLaneColor(event.lane) }}
+                        />
+                        <div className="flex-1 min-w-0">
+                          <div className="flex items-center gap-2 flex-wrap">
+                            <span className="font-medium">{event.title}</span>
+                            {event.severity && (
+                              <span
+                                className="text-xs px-2 py-1 rounded text-white"
+                                style={{
+                                  backgroundColor: getSeverityColor(
+                                    event.severity
+                                  ),
+                                }}
+                              >
+                                {event.severity}/5
+                              </span>
+                            )}
+                            <span className="text-xs px-2 py-1 rounded bg-gray-100 text-gray-700">
+                              {event.lane}
+                            </span>
+                            {event.source === "bot" && (
+                              <span className="text-xs px-2 py-1 rounded bg-blue-100 text-blue-700">
+                                AI
+                              </span>
+                            )}
+                          </div>
+                          {event.details && (
+                            <div className="text-sm text-gray-600 mt-1">
+                              {event.details}
+                            </div>
+                          )}
+                          <div className="text-xs text-gray-400 mt-1">
+                            {formatDate(event.start)}
+                          </div>
+                        </div>
+                      </div>
+                    ))}
+                  </div>
+                )}
+              </div>
+            </div>
+
+            {/* Insights */}
+            <div className="grid md:grid-cols-2 gap-6">
+              {/* Likely Triggers */}
+              <div className="bg-white rounded-lg shadow p-6">
+                <h2 className="text-xl font-semibold mb-4">
+                  🎯 Likely Triggers
+                </h2>
+                <div className="space-y-3">
+                  {insights.triggers
+                    .filter((t) => t.isLikelyTrigger || t.is_likely_trigger)
+                    .slice(0, 5)
+                    .map((trigger, index) => (
+                      <div
+                        key={index}
+                        className="p-3 bg-red-50 border border-red-200 rounded-lg"
+                      >
+                        <div className="font-medium text-red-800">
+                          {trigger.triggerName || trigger.trigger_name} →{" "}
+                          {trigger.symptomName || trigger.symptom_name}
+                        </div>
+                        <div className="text-sm text-red-600">
+                          Confidence:{" "}
+                          {((trigger.confidence || 0) * 100).toFixed(1)}% |
+                          Lift: {(trigger.lift || 0).toFixed(2)}x | Occurrences:{" "}
+                          {trigger.pairCount || trigger.pair_count}
+                        </div>
+                      </div>
+                    ))}
+                  {insights.triggers.filter(
+                    (t) => t.isLikelyTrigger || t.is_likely_trigger
+                  ).length === 0 && (
+                    <div className="text-gray-500 text-sm">
+                      No strong trigger patterns detected yet. Keep logging to
+                      build insights!
+                    </div>
+                  )}
+                </div>
+              </div>
+
+              {/* Product Effectiveness */}
+              <div className="bg-white rounded-lg shadow p-6">
+                <h2 className="text-xl font-semibold mb-4">
+                  💊 Product Effectiveness
+                </h2>
+                <div className="space-y-3">
+                  {insights.products.slice(0, 5).map((product, index) => {
+                    const category =
+                      product.effectivenessCategory ||
+                      product.effectiveness_category;
+                    const improvement =
+                      product.avgImprovement || product.avg_improvement || 0;
+                    const events = product.nEvents || product.n_events || 0;
+                    const name = product.productName || product.product_name;
+
+                    return (
+                      <div
+                        key={index}
+                        className={`p-3 border rounded-lg ${
+                          category === "working"
+                            ? "bg-green-50 border-green-200"
+                            : category === "worsening"
+                            ? "bg-red-50 border-red-200"
+                            : "bg-gray-50 border-gray-200"
+                        }`}
+                      >
+                        <div className="font-medium">
+                          {name}
+                          <span
+                            className={`ml-2 text-xs px-2 py-1 rounded ${
+                              category === "working"
+                                ? "bg-green-100 text-green-800"
+                                : category === "worsening"
+                                ? "bg-red-100 text-red-800"
+                                : "bg-gray-100 text-gray-800"
+                            }`}
+                          >
+                            {category}
+                          </span>
+                        </div>
+                        <div className="text-sm text-gray-600">
+                          Avg improvement: {improvement > 0 ? "+" : ""}
+                          {improvement.toFixed(2)}| Events: {events}
+                        </div>
+                      </div>
+                    );
+                  })}
+                  {insights.products.length === 0 && (
+                    <div className="text-gray-500 text-sm">
+                      Not enough data for product analysis yet. Keep logging
+                      treatments!
+                    </div>
+                  )}
+                </div>
+              </div>
+            </div>
+          </div>
+        );
+      };
+
+      ReactDOM.render(
+        <SkinTimeline />,
+        document.getElementById("timeline-root")
+      );
+    </script>
+  </body>
+</html>

@@ -1,0 +1,510 @@
+"""
+Timeline API endpoints for skin tracking visualization.
+Provides unified timeline events and analytics insights.
+"""
+
+from datetime import datetime, timedelta, timezone
+from typing import List, Optional, D        # Get mood logs
+        mood_response = db.client.table('mood_logs').select('*').eq('user_id', str(user_uuid)).execute()
+        for m in mood_response.data:
+            event_time = parse_timestamp_safe(m['logged_at'])
+            if event_time and from_date <= event_time <= to_date: Any
+from pydantic import BaseModel, Field
+from fastapi import APIRouter, Query, HTTPException, Depends
+from uuid import UUID
+import logging
+
+from database import Database
+
+logger = logging.getLogger(__name__)
+
+# Response DTOs
+class TimelineEvent(BaseModel):
+    """Unified timeline event model."""
+    id: str
+    lane: str  # Symptoms, Products, Triggers, Photos, Notes
+    title: str
+    start: datetime
+    end: Optional[datetime] = None
+    severity: Optional[int] = None
+    tags: Optional[List[str]] = []
+    media_url: Optional[str] = None
+    details: Optional[str] = None
+    source: str  # user or bot
+
+class TriggerInsight(BaseModel):
+    """Trigger analysis result."""
+    trigger_name: str
+    symptom_name: str
+    pair_count: int
+    trigger_count: int
+    symptom_count: int
+    confidence: float
+    baseline: float
+    lift: float
+    is_likely_trigger: bool = Field(default=False, description="Based on lift >= 1.2, confidence >= 0.3, pair_count >= 3")
+
+class ProductEffectiveness(BaseModel):
+    """Product effectiveness analysis result."""
+    product_name: str
+    n_events: int
+    avg_improvement: float
+    median_delta: float
+    effectiveness_category: str = Field(default="neutral", description="working, worsening, or neutral")
+
+class DailyRollup(BaseModel):
+    """Daily symptom severity rollup."""
+    log_date: datetime
+    avg_severity: float
+    severity_count: int
+    rolling_7d_avg: float
+
+class TimelineResponse(BaseModel):
+    """Timeline API response."""
+    events: List[TimelineEvent]
+    total_count: int
+    from_date: datetime
+    to_date: datetime
+
+class InsightsResponse(BaseModel):
+    """Insights API response."""
+    triggers: List[TriggerInsight]
+    products: List[ProductEffectiveness]
+    summary: Dict[str, Any]
+
+# Router setup
+router = APIRouter(prefix="/api/v1/timeline", tags=["timeline"])
+
+async def get_database() -> Database:
+    """Database dependency."""
+    db = Database()
+    await db.initialize()
+    return db
+
+async def get_user_from_telegram_id(telegram_id: int, db: Database) -> Dict[str, Any]:
+    """Get user record from telegram ID."""
+    user = await db.get_user_by_telegram_id(telegram_id)
+    if not user:
+        raise HTTPException(status_code=404, detail="User not found")
+    return user
+
+def parse_timestamp_safe(timestamp_str: str) -> datetime:
+    """Parse timestamp string safely, ensuring timezone awareness."""
+    if not timestamp_str:
+        return None
+    
+    # Handle different timestamp formats
+    if timestamp_str.endswith('Z'):
+        timestamp_str = timestamp_str[:-1] + '+00:00'
+    elif '+' not in timestamp_str and timestamp_str.count(':') == 2:
+        # Assume UTC if no timezone info
+        timestamp_str += '+00:00'
+    
+    return datetime.fromisoformat(timestamp_str)
+
+@router.get("/events", response_model=TimelineResponse)
+async def get_timeline_events(
+    telegram_id: int = Query(..., description="Telegram user ID"),
+    from_date: Optional[datetime] = Query(None, description="Start date filter"),
+    to_date: Optional[datetime] = Query(None, description="End date filter"),
+    lanes: Optional[List[str]] = Query(None, description="Lane filters: Symptoms, Products, Triggers, Photos, Notes"),
+    min_severity: Optional[int] = Query(None, ge=1, le=5, description="Minimum severity filter"),
+    tags: Optional[List[str]] = Query(None, description="Tag filters"),
+    limit: int = Query(100, ge=1, le=1000, description="Maximum events to return"),
+    offset: int = Query(0, ge=0, description="Pagination offset"),
+    db: Database = Depends(get_database)
+):
+    """
+    Get timeline events for a user with optional filtering.
+    
+    Returns a paginated list of timeline events from all data sources,
+    unified into a consistent format for visualization.
+    """
+    try:
+        # Get user record
+        user = await get_user_from_telegram_id(telegram_id, db)
+        user_uuid = UUID(user['id'])
+        
+        # Set default date range if not provided (last 30 days)
+        if not to_date:
+            to_date = datetime.now(timezone.utc)
+        elif to_date.tzinfo is None:
+            to_date = to_date.replace(tzinfo=timezone.utc)
+            
+        if not from_date:
+            from_date = to_date - timedelta(days=30)
+        elif from_date.tzinfo is None:
+            from_date = from_date.replace(tzinfo=timezone.utc)
+        
+        # Execute query using the timeline view
+        # For now, let's build the timeline from individual tables since the view might not be created yet
+        events_data = []
+        
+        # Get symptoms
+        symptoms_response = db.client.table('symptom_logs').select('*').eq('user_id', str(user_uuid)).execute()
+        for s in symptoms_response.data:
+            event_time = parse_timestamp_safe(s['logged_at'])
+            if event_time and from_date <= event_time <= to_date:
+                if not lanes or 'Symptoms' in lanes:
+                    if not min_severity or s.get('severity', 0) >= min_severity:
+                        events_data.append({
+                            'id': s['id'],
+                            'lane': 'Symptoms',
+                            'title': s['symptom_name'],
+                            'start_ts': s['logged_at'],
+                            'end_ts': None,
+                            'severity': s.get('severity'),
+                            'tags': [s['symptom_name'].lower()] if s.get('symptom_name') else [],
+                            'media_url': None,
+                            'details': s.get('notes', ''),
+                            'source': 'user'
+                        })
+        
+        # Get products
+        products_response = db.client.table('product_logs').select('*').eq('user_id', str(user_uuid)).execute()
+        for p in products_response.data:
+            event_time = parse_timestamp_safe(p['logged_at'])
+            if event_time and from_date <= event_time <= to_date:
+                if not lanes or 'Products' in lanes:
+                    events_data.append({
+                        'id': p['id'],
+                        'lane': 'Products',
+                        'title': p['product_name'],
+                        'start_ts': p['logged_at'],
+                        'end_ts': None,
+                        'severity': None,
+                        'tags': [p['effect'].lower()] if p.get('effect') else [],
+                        'media_url': None,
+                        'details': p.get('notes', ''),
+                        'source': 'user'
+                    })
+        
+        # Get triggers
+        triggers_response = db.client.table('trigger_logs').select('*').eq('user_id', str(user_uuid)).execute()
+        for t in triggers_response.data:
+            event_time = parse_timestamp_safe(t['logged_at'])
+            if event_time and from_date <= event_time <= to_date:
+                if not lanes or 'Triggers' in lanes:
+                    events_data.append({
+                        'id': t['id'],
+                        'lane': 'Triggers',
+                        'title': t['trigger_name'],
+                        'start_ts': t['logged_at'],
+                        'end_ts': None,
+                        'severity': None,
+                        'tags': [],
+                        'media_url': None,
+                        'details': t.get('notes', ''),
+                        'source': 'user'
+                    })
+        
+        # Get photos
+        photos_response = db.client.table('photo_logs').select('*').eq('user_id', str(user_uuid)).execute()
+        for ph in photos_response.data:
+            event_time = parse_timestamp_safe(ph['logged_at'])
+            if event_time and from_date <= event_time <= to_date:
+                if not lanes or 'Photos' in lanes:
+                    events_data.append({
+                        'id': ph['id'],
+                        'lane': 'Photos',
+                        'title': 'Photo',
+                        'start_ts': ph['logged_at'],
+                        'end_ts': None,
+                        'severity': None,
+                        'tags': [],
+                        'media_url': ph.get('photo_url'),
+                        'details': ph.get('ai_analysis', ''),
+                        'source': 'user'
+                    })
+        
+        # Get mood logs
+        mood_response = db.client.table('daily_mood_logs').select('*').eq('user_id', str(user_uuid)).execute()
+        for m in mood_response.data:
+            if from_date <= datetime.fromisoformat(m['logged_at'].replace('Z', '+00:00')) <= to_date:
+                if not lanes or 'Notes' in lanes:
+                    events_data.append({
+                        'id': m['id'],
+                        'lane': 'Notes',
+                        'title': f"Mood: {m['mood_rating']}",
+                        'start_ts': m['logged_at'],
+                        'end_ts': None,
+                        'severity': None,
+                        'tags': ['mood'],
+                        'media_url': None,
+                        'details': m.get('mood_description', ''),
+                        'source': 'user'
+                    })
+        
+        # Sort by timestamp descending
+        events_data.sort(key=lambda x: x['start_ts'], reverse=True)
+        
+        # Apply pagination
+        total_count = len(events_data)
+        events_data = events_data[offset:offset + limit]
+        
+        # Convert to response model
+        events = []
+        for event_data in events_data:
+            event = TimelineEvent(
+                id=str(event_data['id']),
+                lane=event_data['lane'],
+                title=event_data['title'],
+                start=datetime.fromisoformat(event_data['start_ts'].replace('Z', '+00:00')),
+                end=event_data.get('end_ts'),
+                severity=event_data.get('severity'),
+                tags=event_data.get('tags', []),
+                media_url=event_data.get('media_url'),
+                details=event_data.get('details'),
+                source=event_data['source']
+            )
+            events.append(event)
+        
+        return TimelineResponse(
+            events=events,
+            total_count=total_count,
+            from_date=from_date,
+            to_date=to_date
+        )
+        
+    except Exception as e:
+        logger.error(f"Error fetching timeline events for user {telegram_id}: {e}")
+        raise HTTPException(status_code=500, detail=f"Error fetching timeline events: {str(e)}")
+
+@router.get("/insights/triggers", response_model=List[TriggerInsight])
+async def get_trigger_insights(
+    telegram_id: int = Query(..., description="Telegram user ID"),
+    window_hours: int = Query(48, ge=1, le=168, description="Time window in hours to analyze trigger-symptom correlation"),
+    db: Database = Depends(get_database)
+):
+    """
+    Analyze trigger patterns and identify likely triggers.
+    
+    Uses statistical analysis (confidence, support, lift) to identify
+    triggers that are associated with symptom flares.
+    """
+    try:
+        # Get user record
+        user = await get_user_from_telegram_id(telegram_id, db)
+        user_uuid = UUID(user['id'])
+        
+        # For now, return simple trigger analysis using Python
+        # Get triggers and symptoms
+        triggers_response = db.client.table('trigger_logs').select('*').eq('user_id', str(user_uuid)).execute()
+        symptoms_response = db.client.table('symptom_logs').select('*').eq('user_id', str(user_uuid)).execute()
+        
+        insights = []
+        
+        # Simple analysis: count co-occurrences within window
+        for trigger in triggers_response.data:
+            trigger_time = datetime.fromisoformat(trigger['logged_at'].replace('Z', '+00:00'))
+            window_end = trigger_time + timedelta(hours=window_hours)
+            
+            for symptom in symptoms_response.data:
+                symptom_time = datetime.fromisoformat(symptom['logged_at'].replace('Z', '+00:00'))
+                
+                if trigger_time <= symptom_time <= window_end:
+                    # Found a correlation - add basic insight
+                    insight = TriggerInsight(
+                        trigger_name=trigger['trigger_name'],
+                        symptom_name=symptom['symptom_name'],
+                        pair_count=1,  # Simplified for now
+                        trigger_count=1,
+                        symptom_count=1,
+                        confidence=0.5,  # Placeholder
+                        baseline=0.3,    # Placeholder  
+                        lift=1.0,        # Placeholder
+                        is_likely_trigger=False  # Conservative for now
+                    )
+                    insights.append(insight)
+                    break  # Only count first symptom per trigger
+        
+        return insights[:10]  # Limit results
+        
+    except Exception as e:
+        logger.error(f"Error analyzing triggers for user {telegram_id}: {e}")
+        raise HTTPException(status_code=500, detail=f"Error analyzing triggers: {str(e)}")
+
+@router.get("/insights/products", response_model=List[ProductEffectiveness])
+async def get_product_effectiveness(
+    telegram_id: int = Query(..., description="Telegram user ID"),
+    pre_days: int = Query(3, ge=1, le=14, description="Days before product use to measure baseline"),
+    post_days: int = Query(7, ge=1, le=30, description="Days after product use to measure effect"),
+    db: Database = Depends(get_database)
+):
+    """
+    Analyze product effectiveness using pre/post severity comparison.
+    
+    Compares symptom severity before and after product use to identify
+    which products are helping, harming, or having no effect.
+    """
+    try:
+        # Get user record
+        user = await get_user_from_telegram_id(telegram_id, db)
+        user_uuid = UUID(user['id'])
+        
+        # For now, return simple product effectiveness analysis using Python
+        # Get products and symptoms
+        products_response = db.client.table('product_logs').select('*').eq('user_id', str(user_uuid)).execute()
+        symptoms_response = db.client.table('symptom_logs').select('*').eq('user_id', str(user_uuid)).execute()
+        
+        products_analysis = []
+        
+        # Simple analysis: check severity before/after product use
+        for product in products_response.data:
+            product_time = datetime.fromisoformat(product['logged_at'].replace('Z', '+00:00'))
+            pre_start = product_time - timedelta(days=pre_days)
+            post_end = product_time + timedelta(days=post_days)
+            
+            pre_severities = []
+            post_severities = []
+            
+            for symptom in symptoms_response.data:
+                symptom_time = datetime.fromisoformat(symptom['logged_at'].replace('Z', '+00:00'))
+                severity = symptom.get('severity')
+                
+                if severity and pre_start <= symptom_time < product_time:
+                    pre_severities.append(severity)
+                elif severity and product_time <= symptom_time <= post_end:
+                    post_severities.append(severity)
+            
+            if pre_severities and post_severities:
+                pre_avg = sum(pre_severities) / len(pre_severities)
+                post_avg = sum(post_severities) / len(post_severities)
+                improvement = pre_avg - post_avg
+                
+                category = "neutral"
+                if improvement >= 0.5:
+                    category = "working"
+                elif improvement <= -0.5:
+                    category = "worsening"
+                
+                products_analysis.append(ProductEffectiveness(
+                    product_name=product['product_name'],
+                    n_events=1,  # Simplified
+                    avg_improvement=improvement,
+                    median_delta=improvement,  # Same as avg for now
+                    effectiveness_category=category
+                ))
+        
+        return products_analysis[:10]  # Limit results
+        
+    except Exception as e:
+        logger.error(f"Error analyzing product effectiveness for user {telegram_id}: {e}")
+        raise HTTPException(status_code=500, detail=f"Error analyzing products: {str(e)}")
+
+@router.get("/rollup", response_model=List[DailyRollup])
+async def get_daily_rollup(
+    telegram_id: int = Query(..., description="Telegram user ID"),
+    from_date: Optional[datetime] = Query(None, description="Start date for rollup"),
+    to_date: Optional[datetime] = Query(None, description="End date for rollup"),
+    db: Database = Depends(get_database)
+):
+    """
+    Get daily symptom severity rollup with trend analysis.
+    
+    Provides daily aggregated severity scores and rolling averages
+    for trend visualization.
+    """
+    try:
+        # Get user record
+        user = await get_user_from_telegram_id(telegram_id, db)
+        user_uuid = UUID(user['id'])
+        
+        # Set default date range if not provided (last 30 days)
+        if not to_date:
+            to_date = datetime.now(timezone.utc)
+        elif to_date.tzinfo is None:
+            to_date = to_date.replace(tzinfo=timezone.utc)
+            
+        if not from_date:
+            from_date = to_date - timedelta(days=30)
+        elif from_date.tzinfo is None:
+            from_date = from_date.replace(tzinfo=timezone.utc)
+        
+        # Get symptom data for the date range
+        symptoms_response = db.client.table('symptom_logs').select('*').eq('user_id', str(user_uuid)).gte('logged_at', from_date.isoformat()).lte('logged_at', to_date.isoformat()).execute()
+        
+        # Group by date and calculate daily averages
+        daily_data = {}
+        for symptom in symptoms_response.data:
+            log_date = datetime.fromisoformat(symptom['logged_at'].replace('Z', '+00:00')).date()
+            severity = symptom.get('severity')
+            
+            if severity:
+                if log_date not in daily_data:
+                    daily_data[log_date] = []
+                daily_data[log_date].append(severity)
+        
+        # Calculate rollups
+        rollups = []
+        sorted_dates = sorted(daily_data.keys())
+        
+        for i, log_date in enumerate(sorted_dates):
+            severities = daily_data[log_date]
+            avg_severity = sum(severities) / len(severities)
+            
+            # Calculate 7-day rolling average
+            start_idx = max(0, i - 6)
+            rolling_severities = []
+            for j in range(start_idx, i + 1):
+                rolling_severities.extend(daily_data[sorted_dates[j]])
+            
+            rolling_avg = sum(rolling_severities) / len(rolling_severities) if rolling_severities else avg_severity
+            
+            rollup = DailyRollup(
+                log_date=datetime.combine(log_date, datetime.min.time()),
+                avg_severity=avg_severity,
+                severity_count=len(severities),
+                rolling_7d_avg=rolling_avg
+            )
+            rollups.append(rollup)
+        
+        return rollups
+        
+    except Exception as e:
+        logger.error(f"Error getting daily rollup for user {telegram_id}: {e}")
+        raise HTTPException(status_code=500, detail=f"Error getting rollup data: {str(e)}")
+
+@router.get("/insights", response_model=InsightsResponse)
+async def get_comprehensive_insights(
+    telegram_id: int = Query(..., description="Telegram user ID"),
+    window_hours: int = Query(48, ge=1, le=168, description="Trigger analysis window"),
+    pre_days: int = Query(3, ge=1, le=14, description="Product baseline period"),
+    post_days: int = Query(7, ge=1, le=30, description="Product effect period"),
+    db: Database = Depends(get_database)
+):
+    """
+    Get comprehensive insights combining trigger analysis and product effectiveness.
+    
+    Provides a unified view of what's working vs not working for the user.
+    """
+    try:
+        # Get both trigger and product insights
+        triggers = await get_trigger_insights(telegram_id, window_hours, db)
+        products = await get_product_effectiveness(telegram_id, pre_days, post_days, db)
+        
+        # Generate summary
+        likely_triggers = [t for t in triggers if t.is_likely_trigger]
+        working_products = [p for p in products if p.effectiveness_category == "working"]
+        worsening_products = [p for p in products if p.effectiveness_category == "worsening"]
+        
+        summary = {
+            "total_triggers_analyzed": len(triggers),
+            "likely_triggers_count": len(likely_triggers),
+            "total_products_analyzed": len(products),
+            "working_products_count": len(working_products),
+            "worsening_products_count": len(worsening_products),
+            "top_trigger": likely_triggers[0].trigger_name if likely_triggers else None,
+            "best_product": working_products[0].product_name if working_products else None,
+            "worst_product": worsening_products[0].product_name if worsening_products else None
+        }
+        
+        return InsightsResponse(
+            triggers=triggers,
+            products=products,
+            summary=summary
+        )
+        
+    except Exception as e:
+        logger.error(f"Error getting comprehensive insights for user {telegram_id}: {e}")
+        raise HTTPException(status_code=500, detail=f"Error getting insights: {str(e)}")
