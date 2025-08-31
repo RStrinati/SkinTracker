@@ -718,3 +718,271 @@ class Database:
         except Exception as e:
             logger.error(f"Error getting data summary for user {telegram_id}: {e}")
             return {}
+
+    # ========== NEW UX ENHANCEMENT METHODS ==========
+
+    async def update_user_onboarding_status(self, telegram_id: int, completed: bool) -> bool:
+        """Update user's onboarding completion status."""
+        try:
+            def update_onboarding():
+                result = self.client.table('users').update({
+                    'onboarding_completed': completed
+                }).eq('telegram_id', telegram_id).execute()
+                return len(result.data) > 0
+            
+            return await asyncio.to_thread(update_onboarding)
+        except Exception as e:
+            logger.error(f"Error updating onboarding status for user {telegram_id}: {e}")
+            return False
+
+    async def get_today_logs(self, telegram_id: int) -> Dict[str, int]:
+        """Get count of today's logs for a user."""
+        try:
+            user = await self.get_user_by_telegram_id(telegram_id)
+            if not user:
+                return {}
+                
+            user_id = user['id']
+            today = datetime.now().strftime('%Y-%m-%d')
+            
+            def count_today_logs():
+                results = {}
+                
+                # Count photos
+                try:
+                    photo_result = self.client.table('photo_logs').select('id', count='exact').eq('user_id', user_id).gte('logged_at', f'{today}T00:00:00').execute()
+                    results['photo_count'] = photo_result.count if hasattr(photo_result, 'count') else len(photo_result.data)
+                except Exception as e:
+                    logger.error(f"Error counting today's photo_count: {e}")
+                    results['photo_count'] = 0
+                
+                # Count mood logs
+                try:
+                    mood_result = self.client.table('daily_mood_logs').select('id', count='exact').eq('user_id', user_id).gte('logged_at', f'{today}T00:00:00').execute()
+                    results['mood_count'] = mood_result.count if hasattr(mood_result, 'count') else len(mood_result.data)
+                except Exception as e:
+                    logger.error(f"Error counting today's mood_count: {e}")
+                    results['mood_count'] = 0
+                
+                # Count symptoms
+                try:
+                    symptom_result = self.client.table('symptom_logs').select('id', count='exact').eq('user_id', user_id).gte('logged_at', f'{today}T00:00:00').execute()
+                    results['symptom_count'] = symptom_result.count if hasattr(symptom_result, 'count') else len(symptom_result.data)
+                except Exception as e:
+                    logger.error(f"Error counting today's symptom_count: {e}")
+                    results['symptom_count'] = 0
+                
+                # Count products
+                try:
+                    product_result = self.client.table('product_logs').select('id', count='exact').eq('user_id', user_id).gte('logged_at', f'{today}T00:00:00').execute()
+                    results['product_count'] = product_result.count if hasattr(product_result, 'count') else len(product_result.data)
+                except Exception as e:
+                    logger.error(f"Error counting today's product_count: {e}")
+                    results['product_count'] = 0
+                
+                return results
+            
+            return await asyncio.to_thread(count_today_logs)
+            
+        except Exception as e:
+            logger.error(f"Error getting today's logs for user {telegram_id}: {e}")
+            return {}
+
+    async def get_user_areas(self, telegram_id: int) -> List[Dict[str, Any]]:
+        """Get user's tracked areas."""
+        try:
+            user = await self.get_user_by_telegram_id(telegram_id)
+            if not user:
+                return []
+                
+            user_id = user['id']
+            
+            def get_areas():
+                result = self.client.table('user_areas').select('*').eq('user_id', user_id).order('created_at').execute()
+                return result.data
+            
+            return await asyncio.to_thread(get_areas)
+            
+        except Exception as e:
+            logger.error(f"Error getting user areas for {telegram_id}: {e}")
+            return []
+
+    async def create_user_area(self, telegram_id: int, area_name: str, description: str = None) -> bool:
+        """Create a new tracking area for user."""
+        try:
+            user = await self.get_user_by_telegram_id(telegram_id)
+            if not user:
+                return False
+                
+            user_id = user['id']
+            
+            def create_area():
+                result = self.client.table('user_areas').insert({
+                    'user_id': user_id,
+                    'name': area_name,
+                    'description': description
+                }).execute()
+                return len(result.data) > 0
+            
+            return await asyncio.to_thread(create_area)
+            
+        except Exception as e:
+            logger.error(f"Error creating area {area_name} for user {telegram_id}: {e}")
+            return False
+
+    async def get_area_logs(self, telegram_id: int, area_name: str, days: int = 30) -> List[Dict[str, Any]]:
+        """Get logs for a specific area."""
+        try:
+            user = await self.get_user_by_telegram_id(telegram_id)
+            if not user:
+                return []
+                
+            user_id = user['id']
+            since_date = (datetime.now() - timedelta(days=days)).isoformat()
+            
+            def get_logs():
+                result = self.client.table('symptom_logs').select('*').eq('user_id', user_id).eq('area', area_name).gte('logged_at', since_date).order('logged_at', desc=True).execute()
+                return result.data
+            
+            return await asyncio.to_thread(get_logs)
+            
+        except Exception as e:
+            logger.error(f"Error getting area logs for {area_name} for user {telegram_id}: {e}")
+            return []
+
+    async def get_area_photos(self, telegram_id: int, area_name: str, days: int = 30) -> List[Dict[str, Any]]:
+        """Get photos for a specific area."""
+        try:
+            user = await self.get_user_by_telegram_id(telegram_id)
+            if not user:
+                return []
+                
+            user_id = user['id']
+            since_date = (datetime.now() - timedelta(days=days)).isoformat()
+            
+            def get_photos():
+                result = self.client.table('photo_logs').select('*').eq('user_id', user_id).eq('area', area_name).gte('logged_at', since_date).order('logged_at', desc=True).execute()
+                return result.data
+            
+            return await asyncio.to_thread(get_photos)
+            
+        except Exception as e:
+            logger.error(f"Error getting area photos for {area_name} for user {telegram_id}: {e}")
+            return []
+
+    # ========== NEW UX ENHANCEMENT METHODS ==========
+
+    async def update_user_onboarding_status(self, telegram_id: int, completed: bool) -> bool:
+        """Update user's onboarding completion status."""
+        try:
+            result = await asyncio.to_thread(
+                lambda: self.client.table('users')
+                .update({'onboarding_completed': completed})
+                .eq('telegram_id', telegram_id)
+                .execute()
+            )
+            return len(result.data) > 0
+        except Exception as e:
+            logger.error(f"Error updating onboarding status for user {telegram_id}: {e}")
+            return False
+
+    async def get_user_areas(self, telegram_id: int) -> List[Dict]:
+        """Get user's tracked areas."""
+        try:
+            user = await self.get_user_by_telegram_id(telegram_id)
+            if not user:
+                return []
+            
+            user_id = user['id']
+            
+            result = await asyncio.to_thread(
+                lambda: self.client.table('user_areas')
+                .select('*')
+                .eq('user_id', user_id)
+                .execute()
+            )
+            
+            # Add recent log count for each area
+            areas = result.data
+            for area in areas:
+                # Get recent log count (last 7 days)
+                recent_count = await self._get_area_recent_log_count(user_id, area['name'])
+                area['recent_log_count'] = recent_count
+                
+            return areas
+            
+        except Exception as e:
+            logger.error(f"Error getting user areas for {telegram_id}: {e}")
+            return []
+
+    async def get_area_logs(self, telegram_id: int, area_name: str, days: int = 30) -> List[Dict]:
+        """Get symptom logs for a specific area."""
+        try:
+            user = await self.get_user_by_telegram_id(telegram_id)
+            if not user:
+                return []
+            
+            user_id = user['id']
+            since_date = (datetime.now() - timedelta(days=days)).isoformat()
+            
+            result = await asyncio.to_thread(
+                lambda: self.client.table('symptom_logs')
+                .select('*')
+                .eq('user_id', user_id)
+                .eq('area', area_name)
+                .gte('logged_at', since_date)
+                .order('logged_at', desc=True)
+                .execute()
+            )
+            
+            return result.data
+            
+        except Exception as e:
+            logger.error(f"Error getting area logs for {area_name}: {e}")
+            return []
+
+    async def get_area_photos(self, telegram_id: int, area_name: str, days: int = 30) -> List[Dict]:
+        """Get photos for a specific area."""
+        try:
+            user = await self.get_user_by_telegram_id(telegram_id)
+            if not user:
+                return []
+            
+            user_id = user['id']
+            since_date = (datetime.now() - timedelta(days=days)).isoformat()
+            
+            result = await asyncio.to_thread(
+                lambda: self.client.table('photo_logs')
+                .select('*')
+                .eq('user_id', user_id)
+                .eq('area', area_name)
+                .gte('logged_at', since_date)
+                .order('logged_at', desc=True)
+                .execute()
+            )
+            
+            return result.data
+            
+        except Exception as e:
+            logger.error(f"Error getting area photos for {area_name}: {e}")
+            return []
+
+    async def _get_area_recent_log_count(self, user_id: int, area_name: str, days: int = 7) -> int:
+        """Get count of recent logs for an area."""
+        try:
+            since_date = (datetime.now() - timedelta(days=days)).isoformat()
+            
+            result = await asyncio.to_thread(
+                lambda: self.client.table('symptom_logs')
+                .select('id', count='exact')
+                .eq('user_id', user_id)
+                .eq('area', area_name)
+                .gte('logged_at', since_date)
+                .execute()
+            )
+            
+            return result.count if hasattr(result, 'count') else len(result.data)
+            
+        except Exception as e:
+            logger.error(f"Error getting recent log count for area {area_name}: {e}")
+            return 0

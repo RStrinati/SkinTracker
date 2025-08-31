@@ -138,6 +138,17 @@ async def shutdown_event():
 async def root():
     return {"message": "Skin Health Tracker Bot is running"}
 
+@app.get("/health")
+async def health_check_root():
+    """Health check endpoint at root level."""
+    db_status = "ok"
+    try:
+        bot.database.client.table('users').select('id').limit(1).execute()
+    except Exception:
+        db_status = "error"
+    overall = "healthy" if db_status == "ok" else "degraded"
+    return {"status": overall, "services": {"database": db_status}}
+
 @api_router.get("/health")
 async def health_check():
     db_status = "ok"

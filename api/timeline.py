@@ -205,13 +205,86 @@ async def get_timeline_events(
 @router.get("/insights/triggers")
 async def get_trigger_insights(
     telegram_id: int = Query(..., description="Telegram user ID"),
+    window_hours: int = Query(24, description="Hours after trigger to look for symptoms"),
+    min_pairs: int = Query(2, description="Minimum trigger-symptom pairs needed"),
     db: Database = Depends(get_database)
 ):
-    """Get trigger analysis insights."""
+    """Get trigger analysis insights using Python-based analytics."""
     try:
         user = await get_user_from_telegram_id(telegram_id, db)
-        # Simple response for now
-        return []
+        user_uuid = UUID(user['id'])
+        
+        # Get all triggers and symptoms for this user
+        triggers_response = db.client.table('trigger_logs').select('*').eq('user_id', str(user_uuid)).execute()
+        symptoms_response = db.client.table('symptom_logs').select('*').eq('user_id', str(user_uuid)).execute()
+        
+        if not triggers_response.data or not symptoms_response.data:
+            return []
+        
+        insights = []
+        window_delta = timedelta(hours=window_hours)
+        
+        # Group triggers by name
+        trigger_groups = {}
+        for trigger in triggers_response.data:
+            trigger_time = parse_timestamp_safe(trigger['logged_at'])
+            if trigger_time:
+                name = trigger['trigger_name']
+                if name not in trigger_groups:
+                    trigger_groups[name] = []
+                trigger_groups[name].append(trigger_time)
+        
+        # Group symptoms by name
+        symptom_groups = {}
+        for symptom in symptoms_response.data:
+            symptom_time = parse_timestamp_safe(symptom['logged_at'])
+            if symptom_time:
+                name = symptom['symptom_name']
+                if name not in symptom_groups:
+                    symptom_groups[name] = []
+                symptom_groups[name].append(symptom_time)
+        
+        # Analyze trigger-symptom correlations
+        for trigger_name, trigger_times in trigger_groups.items():
+            for symptom_name, symptom_times in symptom_groups.items():
+                # Count symptoms that occurred within window after triggers
+                pair_count = 0
+                for trigger_time in trigger_times:
+                    for symptom_time in symptom_times:
+                        if trigger_time < symptom_time <= trigger_time + window_delta:
+                            pair_count += 1
+                            break  # Count only one symptom per trigger instance
+                
+                if pair_count >= min_pairs:
+                    # Calculate statistics
+                    total_triggers = len(trigger_times)
+                    total_symptoms = len(symptom_times)
+                    total_events = len(triggers_response.data) + len(symptoms_response.data)
+                    
+                    if total_triggers > 0 and total_events > 0:
+                        confidence = pair_count / total_triggers
+                        baseline = total_symptoms / total_events if total_events > 0 else 0
+                        lift = confidence / baseline if baseline > 0 else 0
+                        
+                        # Consider it a likely trigger if confidence > 30% and lift > 1.2
+                        is_likely = confidence > 0.3 and lift > 1.2
+                        
+                        insights.append({
+                            "trigger_name": trigger_name,
+                            "symptom_name": symptom_name,
+                            "pair_count": pair_count,
+                            "trigger_count": total_triggers,
+                            "symptom_count": total_symptoms,
+                            "confidence": round(confidence, 3),
+                            "baseline": round(baseline, 3),
+                            "lift": round(lift, 2),
+                            "is_likely_trigger": is_likely
+                        })
+        
+        # Sort by lift (most significant first)
+        insights.sort(key=lambda x: x['lift'], reverse=True)
+        return insights[:10]  # Return top 10
+        
     except Exception as e:
         logger.error(f"Error fetching trigger insights: {e}")
         return []
@@ -219,13 +292,91 @@ async def get_trigger_insights(
 @router.get("/insights/products")
 async def get_product_insights(
     telegram_id: int = Query(..., description="Telegram user ID"),
+    min_events: int = Query(2, description="Minimum product usage events needed"),
     db: Database = Depends(get_database)
 ):
-    """Get product effectiveness insights."""
+    """Get product effectiveness insights using Python-based analytics."""
     try:
         user = await get_user_from_telegram_id(telegram_id, db)
-        # Simple response for now
-        return []
+        user_uuid = UUID(user['id'])
+        
+        # Get all product logs and symptoms for this user
+        products_response = db.client.table('product_logs').select('*').eq('user_id', str(user_uuid)).execute()
+        symptoms_response = db.client.table('symptom_logs').select('*').eq('user_id', str(user_uuid)).execute()
+        
+        if not products_response.data:
+            return []
+        
+        insights = []
+        
+        # Group products by name
+        product_groups = {}
+        for product in products_response.data:
+            product_time = parse_timestamp_safe(product['logged_at'])
+            if product_time:
+                name = product['product_name']
+                if name not in product_groups:
+                    product_groups[name] = []
+                product_groups[name].append({
+                    'time': product_time,
+                    'effect': product.get('effect', ''),
+                    'notes': product.get('notes', '')
+                })
+        
+        # Get symptoms data for correlation analysis
+        symptoms_data = []
+        for symptom in symptoms_response.data:
+            symptom_time = parse_timestamp_safe(symptom['logged_at'])
+            if symptom_time:
+                symptoms_data.append({
+                    'time': symptom_time,
+                    'severity': symptom.get('severity', 0),
+                    'name': symptom['symptom_name']
+                })
+        
+        # Analyze each product's effectiveness
+        for product_name, product_events in product_groups.items():
+            if len(product_events) >= min_events:
+                # Calculate improvement metrics
+                improvements = []
+                
+                for product_event in product_events:
+                    # Look for symptoms in 7-day window before and after product use
+                    before_window = product_event['time'] - timedelta(days=7)
+                    after_window = product_event['time'] + timedelta(days=7)
+                    
+                    before_symptoms = [s for s in symptoms_data if before_window <= s['time'] < product_event['time']]
+                    after_symptoms = [s for s in symptoms_data if product_event['time'] < s['time'] <= after_window]
+                    
+                    if before_symptoms and after_symptoms:
+                        avg_before = sum(s['severity'] for s in before_symptoms) / len(before_symptoms)
+                        avg_after = sum(s['severity'] for s in after_symptoms) / len(after_symptoms)
+                        improvement = avg_before - avg_after  # Positive = improvement
+                        improvements.append(improvement)
+                
+                if improvements:
+                    avg_improvement = sum(improvements) / len(improvements)
+                    
+                    # Categorize effectiveness
+                    if avg_improvement > 0.5:
+                        category = "working"
+                    elif avg_improvement < -0.5:
+                        category = "worsening" 
+                    else:
+                        category = "neutral"
+                    
+                    insights.append({
+                        "product_name": product_name,
+                        "n_events": len(product_events),
+                        "avg_improvement": round(avg_improvement, 2),
+                        "median_delta": round(avg_improvement, 2),  # Simplified for now
+                        "effectiveness_category": category
+                    })
+        
+        # Sort by effectiveness (most helpful first)
+        insights.sort(key=lambda x: x['avg_improvement'], reverse=True)
+        return insights[:10]  # Return top 10
+        
     except Exception as e:
         logger.error(f"Error fetching product insights: {e}")
         return []

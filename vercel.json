@@ -1,0 +1,12 @@
+{
+  "name": "skintracker-timeline",
+  "version": "1.0.0",
+  "scripts": {
+    "build": "mkdir -p dist && cp public/timeline.html dist/index.html",
+    "dev": "python server.py"
+  },
+  "dependencies": {
+    "react": "^18.2.0",
+    "react-dom": "^18.2.0"
+  }
+}

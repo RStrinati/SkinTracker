@@ -54,6 +54,7 @@ const SkinTimeline: React.FC = () => {
     products: [],
   });
   const [loading, setLoading] = useState(true);
+  const [error, setError] = useState<string | null>(null);
   const [selectedLanes, setSelectedLanes] = useState<string[]>([
     "Symptoms",
     "Products",
@@ -83,6 +84,7 @@ const SkinTimeline: React.FC = () => {
   const fetchTimelineData = async () => {
     try {
       setLoading(true);
+      setError(null);
       const userId = getTelegramUserId();
 
       // Fetch timeline events
@@ -90,34 +92,62 @@ const SkinTimeline: React.FC = () => {
         telegram_id: userId.toString(),
         from_date: new Date(dateRange.from + "T00:00:00Z").toISOString(),
         to_date: new Date(dateRange.to + "T23:59:59Z").toISOString(),
-        lanes: selectedLanes.join(","),
         limit: "200",
       });
 
+      // Add selected lanes as separate parameters
+      if (selectedLanes.length > 0) {
+        selectedLanes.forEach((lane) => {
+          timelineParams.append("lanes", lane);
+        });
+      }
+
+      console.log(
+        "Fetching timeline:",
+        `/api/v1/timeline/events?${timelineParams}`
+      );
       const timelineResponse = await fetch(
         `/api/v1/timeline/events?${timelineParams}`
       );
+
+      if (!timelineResponse.ok) {
+        throw new Error(
+          `Timeline API error: ${timelineResponse.status} ${timelineResponse.statusText}`
+        );
+      }
+
       const timelineData: TimelineResponse = await timelineResponse.json();
       setEvents(timelineData.events);
 
       // Fetch insights
-      const triggersResponse = await fetch(
-        `/api/v1/timeline/insights/triggers?telegram_id=${userId}`
-      );
-      const triggersData: TriggerInsight[] = await triggersResponse.json();
+      try {
+        const triggersResponse = await fetch(
+          `/api/v1/timeline/insights/triggers?telegram_id=${userId}`
+        );
+        const triggersData: TriggerInsight[] = triggersResponse.ok
+          ? await triggersResponse.json()
+          : [];
 
-      const productsResponse = await fetch(
-        `/api/v1/timeline/insights/products?telegram_id=${userId}`
-      );
-      const productsData: ProductEffectiveness[] =
-        await productsResponse.json();
+        const productsResponse = await fetch(
+          `/api/v1/timeline/insights/products?telegram_id=${userId}`
+        );
+        const productsData: ProductEffectiveness[] = productsResponse.ok
+          ? await productsResponse.json()
+          : [];
 
-      setInsights({
-        triggers: triggersData,
-        products: productsData,
-      });
+        setInsights({
+          triggers: triggersData,
+          products: productsData,
+        });
+      } catch (insightError) {
+        console.warn("Error fetching insights:", insightError);
+        // Continue with empty insights
+      }
     } catch (error) {
       console.error("Error fetching timeline data:", error);
+      setError(
+        error instanceof Error ? error.message : "Unknown error occurred"
+      );
     } finally {
       setLoading(false);
     }
@@ -156,7 +186,27 @@ const SkinTimeline: React.FC = () => {
   if (loading) {
     return (
       <div className="flex items-center justify-center min-h-screen">
-        <div className="text-lg">Loading timeline...</div>
+        <div className="text-center">
+          <div className="animate-spin rounded-full h-12 w-12 border-b-2 border-blue-500 mx-auto mb-4"></div>
+          <div className="text-lg">Loading timeline...</div>
+        </div>
+      </div>
+    );
+  }
+
+  if (error) {
+    return (
+      <div className="flex items-center justify-center min-h-screen">
+        <div className="text-center text-red-600">
+          <div className="text-lg mb-2">Error loading timeline</div>
+          <div className="text-sm">{error}</div>
+          <button
+            onClick={() => window.location.reload()}
+            className="mt-4 px-4 py-2 bg-blue-500 text-white rounded hover:bg-blue-600"
+          >
+            Retry
+          </button>
+        </div>
       </div>
     );
   }
