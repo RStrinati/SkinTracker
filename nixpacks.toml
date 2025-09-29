@@ -1,0 +1,11 @@
+[phases.setup]
+nixPkgs = ["python39", "pip"]
+
+[phases.install]
+cmds = ["pip install -r requirements-railway.txt"]
+
+[phases.build]
+cmds = ["echo 'Railway build complete - using lightweight dependencies'"]
+
+[start]
+cmd = "python server.py"

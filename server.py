@@ -16,8 +16,24 @@ import os
 from dotenv import load_dotenv
 
 from bot import SkinHealthBot
-from api.routers.analysis import router as analysis_router
-from api.timeline import router as timeline_router
+
+# Import routers with error handling for Railway deployment
+try:
+    from api.routers.analysis import router as analysis_router
+    ANALYSIS_ROUTER_AVAILABLE = True
+except ImportError as e:
+    print(f"Analysis router not available: {e}")
+    analysis_router = APIRouter()  # Empty router
+    ANALYSIS_ROUTER_AVAILABLE = False
+
+try:
+    from api.timeline import router as timeline_router
+    TIMELINE_ROUTER_AVAILABLE = True
+except ImportError as e:
+    print(f"Timeline router not available: {e}")
+    timeline_router = APIRouter()  # Empty router
+    TIMELINE_ROUTER_AVAILABLE = False
+
 from telegram import Update
 
 # Load environment variables from .env file (for local development)
