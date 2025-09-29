@@ -36,6 +36,10 @@ BASE_URL = os.getenv("BASE_URL")
 SESSION_DB_PATH = os.getenv("SESSION_DB_PATH", "auth_sessions.db")
 SESSION_TTL = int(os.getenv("SESSION_TTL", 24 * 60 * 60))
 
+# Railway-specific configuration
+PORT = int(os.getenv("PORT", 8081))
+HOST = os.getenv("HOST", "0.0.0.0")
+
 # Structured logging setup
 class JsonFormatter(logging.Formatter):
     def format(self, record: logging.LogRecord) -> str:  # pragma: no cover - simple wrapper
@@ -68,7 +72,19 @@ app = FastAPI(title="Skin Health Tracker Bot", version="1.0.0")
 api_router = APIRouter(prefix="/api/v1")
 api_router.include_router(analysis_router)
 
-bot = SkinHealthBot()
+# Initialize bot with error handling
+try:
+    bot = SkinHealthBot()
+    logger.info("Bot instance created successfully")
+except Exception as e:
+    logger.error(f"Failed to create bot instance: {e}")
+    # Create a minimal bot object to prevent crashes
+    class MockBot:
+        def __init__(self):
+            self.database = None
+        async def initialize(self): pass
+        async def shutdown(self): pass
+    bot = MockBot()
 
 # ---------------------------------------------------------------------------
 # Persistent session store - with Cloudflare D1 support
@@ -155,8 +171,21 @@ else:
 
 @app.on_event("startup")
 async def startup_event():
-    logger.info("Starting Skin Health Tracker Bot server...")
-    await bot.initialize()
+    try:
+        logger.info("Starting Skin Health Tracker Bot server...")
+        logger.info(f"Environment check - Bot token available: {bool(TELEGRAM_BOT_TOKEN)}")
+        logger.info(f"Environment check - Base URL: {BASE_URL}")
+        
+        # Only initialize bot if we have required environment variables
+        if TELEGRAM_BOT_TOKEN:
+            await bot.initialize()
+            logger.info("Bot initialized successfully")
+        else:
+            logger.warning("TELEGRAM_BOT_TOKEN not set - running in limited mode")
+            
+    except Exception as e:
+        logger.error(f"Error during startup: {e}")
+        # Don't crash the server, just log the error
 
 @app.on_event("shutdown")
 async def shutdown_event():
@@ -170,13 +199,52 @@ async def root():
 @app.get("/health")
 async def health_check_root():
     """Health check endpoint at root level."""
-    db_status = "ok"
     try:
-        bot.database.client.table('users').select('id').limit(1).execute()
-    except Exception:
-        db_status = "error"
-    overall = "healthy" if db_status == "ok" else "degraded"
-    return {"status": overall, "services": {"database": db_status}}
+        db_status = "ok"
+        bot_status = "ok"
+        
+        # Check database connection
+        try:
+            if bot.database and hasattr(bot.database, 'client'):
+                bot.database.client.table('users').select('id').limit(1).execute()
+        except Exception as e:
+            logger.warning(f"Database check failed: {e}")
+            db_status = "warning"
+        
+        # Check bot status
+        try:
+            if not TELEGRAM_BOT_TOKEN:
+                bot_status = "no_token"
+            elif not hasattr(bot, 'application') or not bot.application:
+                bot_status = "not_initialized"
+        except Exception as e:
+            logger.warning(f"Bot check failed: {e}")
+            bot_status = "error"
+        
+        overall = "healthy" if db_status == "ok" and bot_status == "ok" else "degraded"
+        
+        return {
+            "status": overall,
+            "timestamp": time.time(),
+            "services": {
+                "database": db_status,
+                "bot": bot_status,
+                "environment": "railway" if os.getenv("RAILWAY_ENVIRONMENT") else "local"
+            },
+            "config": {
+                "has_bot_token": bool(TELEGRAM_BOT_TOKEN),
+                "has_base_url": bool(BASE_URL),
+                "port": PORT,
+                "host": HOST
+            }
+        }
+    except Exception as e:
+        logger.error(f"Health check error: {e}")
+        return {
+            "status": "error", 
+            "error": str(e),
+            "timestamp": time.time()
+        }
 
 @api_router.get("/health")
 async def health_check():
@@ -383,7 +451,9 @@ async def timeline_page():
 
 if __name__ == "__main__":
     import uvicorn
-    # Railway sets PORT environment variable
-    port = int(os.getenv("PORT", 8081))
-    host = "0.0.0.0"  # Railway requires binding to all interfaces
-    uvicorn.run("server:app", host=host, port=port, reload=False)
+    try:
+        logger.info(f"Starting server on {HOST}:{PORT}")
+        uvicorn.run("server:app", host=HOST, port=PORT, reload=False, log_level="info")
+    except Exception as e:
+        logger.error(f"Failed to start server: {e}")
+        raise
