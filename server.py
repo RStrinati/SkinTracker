@@ -21,14 +21,16 @@ from bot import SkinHealthBot
 try:
     from api.routers.analysis import router as analysis_router
     ANALYSIS_ROUTER_AVAILABLE = True
+    print("Analysis router loaded successfully")
 except ImportError as e:
-    print(f"Analysis router not available: {e}")
+    print(f"Analysis router not available (expected in Railway deployment): {e}")
     analysis_router = APIRouter()  # Empty router
     ANALYSIS_ROUTER_AVAILABLE = False
 
 try:
     from api.timeline import router as timeline_router
     TIMELINE_ROUTER_AVAILABLE = True
+    print("Timeline router loaded successfully")
 except ImportError as e:
     print(f"Timeline router not available: {e}")
     timeline_router = APIRouter()  # Empty router
@@ -135,8 +137,20 @@ if CLOUDFLARE_MODE and os.getenv("CLOUDFLARE_WORKERS"):
         return user_id
     
 else:
-    # Use local SQLite database (existing code)
-    _session_conn = sqlite3.connect(SESSION_DB_PATH, check_same_thread=False)
+    # Use in-memory SQLite database for Railway compatibility
+    try:
+        # Try to use file-based database for local development
+        if not os.getenv("RAILWAY_ENVIRONMENT"):
+            _session_conn = sqlite3.connect(SESSION_DB_PATH, check_same_thread=False)
+        else:
+            # Use in-memory database for Railway deployment
+            _session_conn = sqlite3.connect(":memory:", check_same_thread=False)
+            logger.info("Using in-memory session storage for Railway deployment")
+    except Exception as e:
+        # Fallback to in-memory database if file creation fails
+        logger.warning(f"Failed to create file database, using in-memory: {e}")
+        _session_conn = sqlite3.connect(":memory:", check_same_thread=False)
+    
     _session_conn.execute(
         """
         CREATE TABLE IF NOT EXISTS auth_sessions (
@@ -197,6 +211,9 @@ async def startup_event():
         logger.info("Starting Skin Health Tracker Bot server...")
         logger.info(f"Environment check - Bot token available: {bool(TELEGRAM_BOT_TOKEN)}")
         logger.info(f"Environment check - Base URL: {BASE_URL}")
+        logger.info(f"Components - Analysis router: {ANALYSIS_ROUTER_AVAILABLE}")
+        logger.info(f"Components - Timeline router: {TIMELINE_ROUTER_AVAILABLE}")
+        logger.info(f"Environment - Railway: {bool(os.getenv('RAILWAY_ENVIRONMENT'))}")
         
         # Only initialize bot if we have required environment variables
         if TELEGRAM_BOT_TOKEN:
