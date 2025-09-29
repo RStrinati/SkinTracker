@@ -1,0 +1,23 @@
+# Cloudflare Workers Python Requirements
+# Optimized for Cloudflare Workers runtime
+
+fastapi==0.104.1
+pydantic==2.5.2
+starlette==0.27.0
+python-multipart==0.0.6
+httpx==0.27.0
+python-telegram-bot==21.0.1
+openai==1.47.0
+Pillow==10.4.0
+supabase==2.8.0
+python-dotenv==1.0.0
+PyJWT==2.10.1
+
+# For image processing (if supported in Workers)
+numpy>=2.0,<2.3
+opencv-contrib-python==4.12.0.88
+
+# Lightweight alternatives for Cloudflare Workers
+# Remove heavy dependencies like matplotlib, scipy, etc.
+requests==2.31.0
+urllib3==2.5.0

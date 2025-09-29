@@ -169,9 +169,9 @@ class SkinHealthBot:
 
         try:
             update = Update.de_json(update_data, self.application.bot)
-            await self.application.update_queue.put(update)  # returns immediately
+            await self.application.process_update(update)  # Process update directly for webhook mode
         except Exception:
-            logger.exception("Failed to enqueue Telegram update")
+            logger.exception("Failed to process Telegram update")
 
 
     async def set_webhook(self, webhook_url: str) -> bool:

@@ -1,0 +1,27 @@
+name = "skintracker"
+main = "wrangler.js"
+compatibility_date = "2024-09-29"
+
+# Environment variables (public ones - secrets will be set via CLI)
+[vars]
+NEXT_PUBLIC_SUPABASE_URL = "https://vhcbasztxosctnzfyvbu.supabase.co"
+NEXT_PUBLIC_SUPABASE_ANON_KEY = "eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6InZoY2Jhc3p0eG9zY3RuemZ5dmJ1Iiwicm9sZSI6ImFub24iLCJpYXQiOjE3NTM5NzczNjQsImV4cCI6MjA2OTU1MzM2NH0.fgjr7Scd4FrV6I4oL8YaRwkxGpaDCcIg-5PK4WYtJbw"
+
+# Database binding for Cloudflare D1
+[[d1_databases]]
+binding = "DB"
+database_name = "skintracker-sessions"
+database_id = "d2767f40-68e8-4aa0-8156-aaf6a2685e4e"
+
+# Production environment
+[env.production]
+name = "skintracker-prod"
+
+# Assets serving configuration
+[assets]
+directory = "public"
+
+# Custom domains (optional - configure after deployment)
+# [[route]]
+# pattern = "your-domain.com/*"
+# zone_name = "your-domain.com"

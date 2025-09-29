@@ -20,8 +20,16 @@ from api.routers.analysis import router as analysis_router
 from api.timeline import router as timeline_router
 from telegram import Update
 
-# Load environment variables from .env file
-load_dotenv()
+# Load environment variables from .env file (for local development)
+if not os.getenv("CLOUDFLARE_WORKERS"):
+    load_dotenv()
+
+# Import Cloudflare database adapter
+try:
+    from cloudflare_database import get_cloudflare_db
+    CLOUDFLARE_MODE = True
+except ImportError:
+    CLOUDFLARE_MODE = False
 
 TELEGRAM_BOT_TOKEN = os.getenv("TELEGRAM_BOT_TOKEN")
 BASE_URL = os.getenv("BASE_URL")
@@ -63,66 +71,87 @@ api_router.include_router(analysis_router)
 bot = SkinHealthBot()
 
 # ---------------------------------------------------------------------------
-# Persistent session store using SQLite
+# Persistent session store - with Cloudflare D1 support
 # ---------------------------------------------------------------------------
-_session_conn = sqlite3.connect(SESSION_DB_PATH, check_same_thread=False)
-_session_conn.execute(
-    """
-    CREATE TABLE IF NOT EXISTS auth_sessions (
-        token TEXT PRIMARY KEY,
-        user_id INTEGER NOT NULL,
-        expires_at INTEGER NOT NULL
-    )
-    """
-)
-_session_conn.commit()
 
-
-def _purge_expired_sessions() -> None:
-    """Remove expired session entries from the store."""
-    with _session_conn:
-        _session_conn.execute(
-            "DELETE FROM auth_sessions WHERE expires_at < ?",
-            (int(time.time()),),
+# Check if we're running in Cloudflare Workers
+if CLOUDFLARE_MODE and os.getenv("CLOUDFLARE_WORKERS"):
+    # Use Cloudflare D1 database
+    cloudflare_db = get_cloudflare_db()
+    
+    async def save_session(token: str, user_id: int, ttl: int = SESSION_TTL) -> None:
+        """Persist a session token with an expiration time in D1."""
+        expires_at = int(time.time()) + ttl
+        await cloudflare_db.create_session(token, user_id, expires_at)
+    
+    async def get_user_id_from_token(token: str) -> Optional[int]:
+        """Return user_id if the token is valid from D1, otherwise None."""
+        session = await cloudflare_db.get_session(token)
+        return session['user_id'] if session else None
+    
+    async def require_user_id(token: str) -> int:
+        """Validate a session token and return the associated user ID from D1."""
+        user_id = await get_user_id_from_token(token)
+        if not user_id:
+            raise HTTPException(status_code=401, detail="Invalid or expired token")
+        return user_id
+    
+else:
+    # Use local SQLite database (existing code)
+    _session_conn = sqlite3.connect(SESSION_DB_PATH, check_same_thread=False)
+    _session_conn.execute(
+        """
+        CREATE TABLE IF NOT EXISTS auth_sessions (
+            token TEXT PRIMARY KEY,
+            user_id INTEGER NOT NULL,
+            expires_at INTEGER NOT NULL
         )
-
-
-def save_session(token: str, user_id: int, ttl: int = SESSION_TTL) -> None:
-    """Persist a session token with an expiration time."""
-    expires_at = int(time.time()) + ttl
-    with _session_conn:
-        _purge_expired_sessions()
-        _session_conn.execute(
-            "INSERT OR REPLACE INTO auth_sessions (token, user_id, expires_at) VALUES (?, ?, ?)",
-            (token, user_id, expires_at),
-        )
-
-
-def get_user_id_from_token(token: str) -> Optional[int]:
-    """Return user_id if the token is valid, otherwise ``None``."""
-    cur = _session_conn.execute(
-        "SELECT user_id, expires_at FROM auth_sessions WHERE token = ?",
-        (token,),
+        """
     )
-    row = cur.fetchone()
-    if not row:
-        return None
-    user_id, expires_at = row
-    if expires_at < int(time.time()):
+    _session_conn.commit()
+
+    def _purge_expired_sessions() -> None:
+        """Remove expired session entries from the store."""
         with _session_conn:
             _session_conn.execute(
-                "DELETE FROM auth_sessions WHERE token = ?", (token,)
+                "DELETE FROM auth_sessions WHERE expires_at < ?",
+                (int(time.time()),),
             )
-        return None
-    return user_id
 
+    def save_session(token: str, user_id: int, ttl: int = SESSION_TTL) -> None:
+        """Persist a session token with an expiration time."""
+        expires_at = int(time.time()) + ttl
+        with _session_conn:
+            _purge_expired_sessions()
+            _session_conn.execute(
+                "INSERT OR REPLACE INTO auth_sessions (token, user_id, expires_at) VALUES (?, ?, ?)",
+                (token, user_id, expires_at),
+            )
 
-def require_user_id(token: str) -> int:
-    """Validate a session token and return the associated user ID."""
-    user_id = get_user_id_from_token(token)
-    if not user_id:
-        raise HTTPException(status_code=401, detail="Invalid or expired token")
-    return user_id
+    def get_user_id_from_token(token: str) -> Optional[int]:
+        """Return user_id if the token is valid, otherwise ``None``."""
+        cur = _session_conn.execute(
+            "SELECT user_id, expires_at FROM auth_sessions WHERE token = ?",
+            (token,),
+        )
+        row = cur.fetchone()
+        if not row:
+            return None
+        user_id, expires_at = row
+        if expires_at < int(time.time()):
+            with _session_conn:
+                _session_conn.execute(
+                    "DELETE FROM auth_sessions WHERE token = ?", (token,)
+                )
+            return None
+        return user_id
+
+    def require_user_id(token: str) -> int:
+        """Validate a session token and return the associated user ID."""
+        user_id = get_user_id_from_token(token)
+        if not user_id:
+            raise HTTPException(status_code=401, detail="Invalid or expired token")
+        return user_id
 
 @app.on_event("startup")
 async def startup_event():
@@ -193,7 +222,13 @@ async def telegram_auth(data: TelegramAuthRequest):
             raise HTTPException(status_code=403, detail="Authentication data is too old")
 
         session_token = secrets.token_urlsafe(32)
-        save_session(session_token, data.id)
+        
+        # Handle both async (Cloudflare) and sync (local) save_session
+        if CLOUDFLARE_MODE and os.getenv("CLOUDFLARE_WORKERS"):
+            await save_session(session_token, data.id)
+        else:
+            save_session(session_token, data.id)
+            
         return {"token": session_token}
 
     except HTTPException:
@@ -348,6 +383,7 @@ async def timeline_page():
 
 if __name__ == "__main__":
     import uvicorn
-    host = "127.0.0.1"
-    port = 8081
-    uvicorn.run("server:app", host=host, port=port, reload=True)
+    # Railway sets PORT environment variable
+    port = int(os.getenv("PORT", 8081))
+    host = "0.0.0.0"  # Railway requires binding to all interfaces
+    uvicorn.run("server:app", host=host, port=port, reload=False)

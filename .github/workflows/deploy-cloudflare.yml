@@ -1,0 +1,67 @@
+name: Deploy to Cloudflare Workers
+
+on:
+  push:
+    branches: [ main ]
+  pull_request:
+    branches: [ main ]
+
+jobs:
+  deploy:
+    runs-on: ubuntu-latest
+    
+    steps:
+    - name: Checkout code
+      uses: actions/checkout@v4
+    
+    - name: Setup Node.js
+      uses: actions/setup-node@v4
+      with:
+        node-version: '18'
+        cache: 'npm'
+        
+    - name: Setup Python
+      uses: actions/setup-python@v4
+      with:
+        python-version: '3.11'
+        
+    - name: Install Python dependencies
+      run: |
+        pip install -r requirements-cloudflare.txt
+        
+    - name: Install Wrangler
+      run: npm install -g wrangler
+      
+    - name: Create D1 Database (if not exists)
+      run: |
+        wrangler d1 create skintracker-sessions || echo "Database might already exist"
+      env:
+        CLOUDFLARE_API_TOKEN: ${{ secrets.CLOUDFLARE_API_TOKEN }}
+        
+    - name: Run D1 Migrations
+      run: |
+        wrangler d1 execute skintracker-sessions --file=./d1-schema.sql
+      env:
+        CLOUDFLARE_API_TOKEN: ${{ secrets.CLOUDFLARE_API_TOKEN }}
+        
+    - name: Deploy to Cloudflare Workers
+      run: wrangler deploy
+      env:
+        CLOUDFLARE_API_TOKEN: ${{ secrets.CLOUDFLARE_API_TOKEN }}
+        
+    - name: Set Cloudflare Secrets
+      run: |
+        echo "${{ secrets.TELEGRAM_BOT_TOKEN }}" | wrangler secret put TELEGRAM_BOT_TOKEN
+        echo "${{ secrets.OPENAI_API_KEY }}" | wrangler secret put OPENAI_API_KEY
+        echo "${{ secrets.SUPABASE_SERVICE_ROLE_KEY }}" | wrangler secret put SUPABASE_SERVICE_ROLE_KEY
+      env:
+        CLOUDFLARE_API_TOKEN: ${{ secrets.CLOUDFLARE_API_TOKEN }}
+        
+    - name: Update Telegram Webhook
+      run: |
+        WORKER_URL=$(wrangler whoami | grep -oP 'https://.*\.workers\.dev' || echo "")
+        if [ -n "$WORKER_URL" ]; then
+          curl -X POST "${WORKER_URL}/api/v1/set-webhook"
+        fi
+      env:
+        CLOUDFLARE_API_TOKEN: ${{ secrets.CLOUDFLARE_API_TOKEN }}
