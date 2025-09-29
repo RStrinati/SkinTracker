@@ -75,12 +75,18 @@ class ExcludeWatchfilesFilter(logging.Filter):
     def filter(self, record):
         return record.name != "watchfiles.main"
 
-file_handler = logging.FileHandler('error.log', encoding='utf-8')
-file_handler.setFormatter(JsonFormatter())
-file_handler.addFilter(ExcludeWatchfilesFilter())
+# Railway-safe logging - no file handler
+try:
+    file_handler = logging.FileHandler('error.log', encoding='utf-8')
+    file_handler.setFormatter(JsonFormatter())
+    file_handler.addFilter(ExcludeWatchfilesFilter())
+    handlers = [handler, file_handler]
+except PermissionError:
+    # Railway doesn't allow file writing - use only console
+    handlers = [handler]
 
 root_logger = logging.getLogger()
-root_logger.handlers = [handler, file_handler]
+root_logger.handlers = handlers
 root_logger.setLevel(logging.INFO)
 logger = logging.getLogger(__name__)
 
