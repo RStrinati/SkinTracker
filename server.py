@@ -491,6 +491,8 @@ async def timeline_page():
 if __name__ == "__main__":
     import uvicorn
     try:
+        # This will only run in local development
+        # Railway will use uvicorn command from railway.json
         logger.info(f"Starting server on {HOST}:{PORT}")
         uvicorn.run("server:app", host=HOST, port=PORT, reload=False, log_level="info")
     except Exception as e:
