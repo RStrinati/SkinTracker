@@ -1,3 +1,4 @@
+from contextlib import asynccontextmanager
 from fastapi import FastAPI, Request, HTTPException, BackgroundTasks, APIRouter
 from fastapi.responses import JSONResponse
 from fastapi.staticfiles import StaticFiles
@@ -55,7 +56,7 @@ SESSION_DB_PATH = os.getenv("SESSION_DB_PATH", "auth_sessions.db")
 SESSION_TTL = int(os.getenv("SESSION_TTL", 24 * 60 * 60))
 
 # Railway-specific configuration
-PORT = int(os.getenv("PORT", 8081))
+PORT = int(os.getenv("PORT", 8080))  # Railway defaults to 8080
 HOST = os.getenv("HOST", "0.0.0.0")
 
 # Structured logging setup
@@ -92,7 +93,7 @@ root_logger.handlers = handlers
 root_logger.setLevel(logging.INFO)
 logger = logging.getLogger(__name__)
 
-app = FastAPI(title="Skin Health Tracker Bot", version="1.0.0")
+# Initialize API router
 api_router = APIRouter(prefix="/api/v1")
 api_router.include_router(analysis_router)
 
@@ -109,6 +110,37 @@ except Exception as e:
         async def initialize(self): pass
         async def shutdown(self): pass
     bot = MockBot()
+
+@asynccontextmanager
+async def lifespan(app: FastAPI):
+    # Startup
+    try:
+        logger.info("Starting Skin Health Tracker Bot server...")
+        logger.info(f"Environment check - Bot token available: {bool(TELEGRAM_BOT_TOKEN)}")
+        logger.info(f"Environment check - Base URL: {BASE_URL}")
+        logger.info(f"Components - Analysis router: {ANALYSIS_ROUTER_AVAILABLE}")
+        logger.info(f"Components - Timeline router: {TIMELINE_ROUTER_AVAILABLE}")
+        logger.info(f"Environment - Railway: {bool(os.getenv('RAILWAY_ENVIRONMENT'))}")
+        logger.info(f"Port configuration: {PORT}")
+        
+        # Only initialize bot if we have required environment variables
+        if TELEGRAM_BOT_TOKEN:
+            await bot.initialize()
+            logger.info("Bot initialized successfully")
+        else:
+            logger.warning("TELEGRAM_BOT_TOKEN not set - running in limited mode")
+            
+    except Exception as e:
+        logger.error(f"Error during startup: {e}")
+        # Don't crash the server, just log the error
+    
+    yield
+    
+    # Shutdown
+    logger.info("Shutting down Skin Health Tracker Bot server...")
+    await bot.shutdown()
+
+app = FastAPI(title="Skin Health Tracker Bot", version="1.0.0", lifespan=lifespan)
 
 # ---------------------------------------------------------------------------
 # Persistent session store - with Cloudflare D1 support
@@ -204,32 +236,6 @@ else:
         if not user_id:
             raise HTTPException(status_code=401, detail="Invalid or expired token")
         return user_id
-
-@app.on_event("startup")
-async def startup_event():
-    try:
-        logger.info("Starting Skin Health Tracker Bot server...")
-        logger.info(f"Environment check - Bot token available: {bool(TELEGRAM_BOT_TOKEN)}")
-        logger.info(f"Environment check - Base URL: {BASE_URL}")
-        logger.info(f"Components - Analysis router: {ANALYSIS_ROUTER_AVAILABLE}")
-        logger.info(f"Components - Timeline router: {TIMELINE_ROUTER_AVAILABLE}")
-        logger.info(f"Environment - Railway: {bool(os.getenv('RAILWAY_ENVIRONMENT'))}")
-        
-        # Only initialize bot if we have required environment variables
-        if TELEGRAM_BOT_TOKEN:
-            await bot.initialize()
-            logger.info("Bot initialized successfully")
-        else:
-            logger.warning("TELEGRAM_BOT_TOKEN not set - running in limited mode")
-            
-    except Exception as e:
-        logger.error(f"Error during startup: {e}")
-        # Don't crash the server, just log the error
-
-@app.on_event("shutdown")
-async def shutdown_event():
-    logger.info("Shutting down Skin Health Tracker Bot server...")
-    await bot.shutdown()
 
 @app.get("/")
 async def root():
