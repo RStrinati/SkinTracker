@@ -251,7 +251,11 @@ else:
 
 @app.get("/")
 async def root():
-    return {"message": "Skin Health Tracker Bot is running - FastAPI Lifespan Update Applied"}
+    return {
+        "message": "Skin Health Tracker Bot is running",
+        "status": "healthy",
+        "version": "1.0.1"
+    }
 
 @app.get("/health")
 async def health_check_root():
