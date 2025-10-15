@@ -127,8 +127,10 @@ async def lifespan(app: FastAPI):
         if TELEGRAM_BOT_TOKEN:
             await bot.initialize()
             logger.info("Bot initialized successfully")
+            logger.info(f"✅ READY TO ACCEPT TRAFFIC ON PORT {PORT}")
         else:
             logger.warning("TELEGRAM_BOT_TOKEN not set - running in limited mode")
+            logger.info(f"✅ READY TO ACCEPT TRAFFIC ON PORT {PORT} (limited mode)")
             
     except Exception as e:
         logger.error(f"Error during startup: {e}")
@@ -244,17 +246,24 @@ async def root():
 @app.get("/health")
 async def health_check_root():
     """Simplified health check for Railway compatibility."""
-    return {"status": "healthy", "timestamp": time.time()}
+    return {"status": "healthy", "timestamp": time.time(), "port": PORT}
 
 @api_router.get("/health")
 async def health_check():
+    """Detailed health check with database status."""
     db_status = "ok"
     try:
         bot.database.client.table('users').select('id').limit(1).execute()
-    except Exception:
+    except Exception as e:
+        logger.warning(f"Health check database query failed: {e}")
         db_status = "error"
     overall = "healthy" if db_status == "ok" else "degraded"
-    return {"status": overall, "services": {"database": db_status}}
+    return {
+        "status": overall, 
+        "services": {"database": db_status},
+        "port": PORT,
+        "timestamp": time.time()
+    }
 
 class TelegramAuthRequest(BaseModel):
     id: int
