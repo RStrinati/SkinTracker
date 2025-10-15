@@ -1,28 +1,40 @@
 #!/bin/sh
+set -e
 
-# Railway Startup Script with Health Check Delay
-# This ensures the server is fully ready before Railway starts health checks
-
-echo "🚀 Starting SkinTracker on Railway..."
+# Railway Startup Script - Optimized for Fast & Reliable Deployment
+echo "=========================================="
+echo "🚀 SkinTracker Railway Deployment"
+echo "=========================================="
 echo "📍 PORT: ${PORT:-8080}"
-echo "🌍 BASE_URL: ${BASE_URL:-not set}"
+echo "🌍 BASE_URL: ${BASE_URL}"
+echo "🔧 Environment: ${RAILWAY_ENVIRONMENT:-production}"
+echo "=========================================="
 echo ""
 
-# Start uvicorn in background
-uvicorn server:app --host 0.0.0.0 --port ${PORT:-8080} &
-UVICORN_PID=$!
-
-echo "⏳ Waiting for server to be ready..."
-sleep 5
-
-# Check if process is still running
-if kill -0 $UVICORN_PID 2>/dev/null; then
-    echo "✅ Server started successfully (PID: $UVICORN_PID)"
-    echo "✅ Ready to accept traffic on port ${PORT:-8080}"
-    
-    # Wait for uvicorn process
-    wait $UVICORN_PID
-else
-    echo "❌ Server failed to start"
+# Verify critical environment variables
+if [ -z "$TELEGRAM_BOT_TOKEN" ]; then
+    echo "❌ ERROR: TELEGRAM_BOT_TOKEN not set!"
     exit 1
 fi
+
+if [ -z "$SUPABASE_URL" ]; then
+    echo "❌ ERROR: SUPABASE_URL not set!"
+    exit 1
+fi
+
+if [ -z "$SUPABASE_KEY" ]; then
+    echo "❌ ERROR: SUPABASE_KEY not set!"
+    exit 1
+fi
+
+echo "✅ All critical environment variables present"
+echo ""
+
+# Start uvicorn with explicit configuration
+echo "🚀 Starting Uvicorn server..."
+exec uvicorn server:app \
+    --host 0.0.0.0 \
+    --port ${PORT:-8080} \
+    --log-level info \
+    --access-log \
+    --no-use-colors
