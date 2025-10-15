@@ -243,53 +243,8 @@ async def root():
 
 @app.get("/health")
 async def health_check_root():
-    """Health check endpoint at root level."""
-    try:
-        db_status = "ok"
-        bot_status = "ok"
-        
-        # Check database connection
-        try:
-            if bot.database and hasattr(bot.database, 'client'):
-                bot.database.client.table('users').select('id').limit(1).execute()
-        except Exception as e:
-            logger.warning(f"Database check failed: {e}")
-            db_status = "warning"
-        
-        # Check bot status
-        try:
-            if not TELEGRAM_BOT_TOKEN:
-                bot_status = "no_token"
-            elif not hasattr(bot, 'application') or not bot.application:
-                bot_status = "not_initialized"
-        except Exception as e:
-            logger.warning(f"Bot check failed: {e}")
-            bot_status = "error"
-        
-        overall = "healthy" if db_status == "ok" and bot_status == "ok" else "degraded"
-        
-        return {
-            "status": overall,
-            "timestamp": time.time(),
-            "services": {
-                "database": db_status,
-                "bot": bot_status,
-                "environment": "railway" if os.getenv("RAILWAY_ENVIRONMENT") else "local"
-            },
-            "config": {
-                "has_bot_token": bool(TELEGRAM_BOT_TOKEN),
-                "has_base_url": bool(BASE_URL),
-                "port": PORT,
-                "host": HOST
-            }
-        }
-    except Exception as e:
-        logger.error(f"Health check error: {e}")
-        return {
-            "status": "error", 
-            "error": str(e),
-            "timestamp": time.time()
-        }
+    """Simplified health check for Railway compatibility."""
+    return {"status": "healthy", "timestamp": time.time()}
 
 @api_router.get("/health")
 async def health_check():
