@@ -123,11 +123,18 @@ async def lifespan(app: FastAPI):
         logger.info(f"Environment - Railway: {bool(os.getenv('RAILWAY_ENVIRONMENT'))}")
         logger.info(f"Port configuration: {PORT}")
         
-        # Only initialize bot if we have required environment variables
+        # Initialize bot in background to not block server startup
         if TELEGRAM_BOT_TOKEN:
-            await bot.initialize()
-            logger.info("Bot initialized successfully")
-            logger.info(f"✅ READY TO ACCEPT TRAFFIC ON PORT {PORT}")
+            async def init_bot_async():
+                try:
+                    await bot.initialize()
+                    logger.info("Bot initialized successfully")
+                except Exception as e:
+                    logger.error(f"Bot initialization failed: {e}")
+            
+            # Start bot initialization in background
+            asyncio.create_task(init_bot_async())
+            logger.info(f"✅ READY TO ACCEPT TRAFFIC ON PORT {PORT} (bot initializing in background)")
         else:
             logger.warning("TELEGRAM_BOT_TOKEN not set - running in limited mode")
             logger.info(f"✅ READY TO ACCEPT TRAFFIC ON PORT {PORT} (limited mode)")
@@ -140,7 +147,10 @@ async def lifespan(app: FastAPI):
     
     # Shutdown
     logger.info("Shutting down Skin Health Tracker Bot server...")
-    await bot.shutdown()
+    try:
+        await bot.shutdown()
+    except Exception as e:
+        logger.error(f"Error during shutdown: {e}")
 
 app = FastAPI(title="Skin Health Tracker Bot", version="1.0.0", lifespan=lifespan)
 
