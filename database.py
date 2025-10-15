@@ -24,11 +24,9 @@ class Database:
         # Service layer instances
         self.storage = StorageService(self.client)
         
-        # Only try to ensure bucket if we have service role key
-        if self.service_role_key:
-            self._ensure_photo_bucket()
-        else:
-            logger.warning("No service role key found. Storage bucket creation will be skipped. Please create 'skin-photos' bucket manually in Supabase Dashboard.")
+        # Don't call _ensure_photo_bucket() during init - move to initialize() method
+        # This prevents blocking API calls during import
+        self._bucket_ensured = False
 
     def _ensure_photo_bucket(self) -> None:
         """Ensure that the photo storage bucket exists."""
@@ -67,6 +65,14 @@ class Database:
                 self.client.table('users').select('id').limit(1).execute
             )
             logger.info("Database connection established successfully")
+            
+            # Ensure photo bucket exists (moved from __init__ to prevent blocking during import)
+            if not self._bucket_ensured and self.service_role_key:
+                await asyncio.to_thread(self._ensure_photo_bucket)
+                self._bucket_ensured = True
+            elif not self.service_role_key:
+                logger.warning("No service role key found. Storage bucket creation will be skipped. Please create 'skin-photos' bucket manually in Supabase Dashboard.")
+                
         except Exception as e:
             logger.exception("Database initialization failed")
             raise

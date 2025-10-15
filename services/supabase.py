@@ -63,4 +63,22 @@ class SupabaseService:
 
 
 # Module-level singleton --------------------------------------------------
-supabase = SupabaseService()
+_supabase_instance = None
+
+def get_supabase():
+    """Get or create the Supabase service singleton."""
+    global _supabase_instance
+    if _supabase_instance is None:
+        _supabase_instance = SupabaseService()
+    return _supabase_instance
+
+# Create a lazy property-like object
+class LazySupabase:
+    @property
+    def client(self):
+        return get_supabase().client
+    
+    def __getattr__(self, name):
+        return getattr(get_supabase(), name)
+
+supabase = LazySupabase()
