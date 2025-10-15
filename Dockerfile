@@ -14,4 +14,4 @@ COPY requirements-railway.txt requirements-railway.txt
 RUN pip install --no-cache-dir -r requirements-railway.txt
 COPY . .
 
-CMD ["sh", "-c", "uvicorn server:app --host 0.0.0.0"]
+CMD ["sh", "-c", "uvicorn server:app --host 0.0.0.0 --port ${PORT:-8080}"]
