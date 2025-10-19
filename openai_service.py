@@ -21,6 +21,11 @@ class OpenAIService:
         
         self.client = AsyncOpenAI(api_key=self.api_key)
         self.model = "gpt-4"  # Use GPT-4 for better analysis
+        logger.info(
+            "OpenAIService configured (key_length=%s, railway_env=%s)",
+            len(self.api_key),
+            bool(os.getenv("RAILWAY_ENVIRONMENT")),
+        )
 
     async def generate_summary(self, user_logs: Dict[str, List[Dict[str, Any]]]) -> str:
         """Generate a weekly summary of user's skin health progress."""

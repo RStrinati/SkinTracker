@@ -59,24 +59,31 @@ class Database:
 
     async def initialize(self):
         """Initialize database connection and ensure tables exist."""
+        logger.info(
+            "Database.initialize start (supabase_url_set=%s, service_role=%s, railway_env=%s)",
+            bool(os.getenv("NEXT_PUBLIC_SUPABASE_URL")),
+            bool(self.service_role_key),
+            bool(os.getenv("RAILWAY_ENVIRONMENT")),
+        )
         try:
             # Test connection
             response = await asyncio.to_thread(
                 self.client.table('users').select('id').limit(1).execute
             )
             logger.info("Database connection established successfully")
-            
+
             # Ensure photo bucket exists (moved from __init__ to prevent blocking during import)
             if not self._bucket_ensured and self.service_role_key:
+                logger.info("Ensuring Supabase storage bucket exists")
                 await asyncio.to_thread(self._ensure_photo_bucket)
                 self._bucket_ensured = True
             elif not self.service_role_key:
                 logger.warning("No service role key found. Storage bucket creation will be skipped. Please create 'skin-photos' bucket manually in Supabase Dashboard.")
-                
+
+            logger.info("Database initialization completed")
         except Exception as e:
             logger.exception("Database initialization failed")
             raise
-
     async def close(self):
         """Close database connection."""
         # Supabase client doesn't need explicit closing

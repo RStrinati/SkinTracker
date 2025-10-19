@@ -39,6 +39,15 @@ class SkinHealthBot:
         # self.analysis_provider = InsightFaceProvider()  # Temporarily disabled
         self.analysis_provider = None
 
+        self._initialized = False
+        self._initializing = False
+
+        logger.info(
+            "SkinHealthBot instantiated (railway_env=%s, supabase_url_set=%s)",
+            bool(os.getenv("RAILWAY_ENVIRONMENT")),
+            bool(os.getenv("NEXT_PUBLIC_SUPABASE_URL")),
+        )
+
         # Default fallback options if database tables are empty
         self.default_products = [
             "Cicaplast", "Azelaic Acid", "Enstilar", "Cerave Moisturizer",
@@ -106,32 +115,98 @@ class SkinHealthBot:
 
     async def initialize(self):
         """Initialize the bot and database."""
-        await self.database.initialize()
-        await self.application.initialize()  # Initialize but don't start polling
-        # Don't call application.start() for webhook mode - it starts polling
-        self.bot = self.application.bot  # Make sure this is after `initialize()`
-        await self._setup_persistent_menu()
-        # Initialize reminder scheduler now that bot is available
-        self.scheduler = ReminderScheduler(self.bot)
+        if self._initialized:
+            logger.info("initialize() called but bot already initialized; skipping")
+            return
+        if self._initializing:
+            logger.info("initialize() already in progress; awaiting completion")
+            while self._initializing:
+                await asyncio.sleep(0.1)
+            return
 
-        # Reload any stored reminder schedules so they persist across restarts
-        users = await self.database.get_users_with_reminders()
-        for user in users:
-            reminder_time = user.get("reminder_time")
-            if reminder_time:
-                self.scheduler.schedule_daily_reminder(
-                    user["telegram_id"], reminder_time, user.get("timezone", "UTC")
-                )
+        self._initializing = True
+        logger.info(
+            "Starting SkinHealthBot.initialize (railway_env=%s, supabase_url_set=%s)",
+            bool(os.getenv("RAILWAY_ENVIRONMENT")),
+            bool(os.getenv("NEXT_PUBLIC_SUPABASE_URL")),
+        )
+        try:
+            logger.info("Initializing database connection")
+            await self.database.initialize()
+            logger.info("Database initialization complete")
 
-        logger.info("Bot initialized successfully")
+            logger.info("Initializing telegram application")
+            await self.application.initialize()  # Initialize but don't start polling
+            logger.info("Telegram application ready")
+
+            # Don't call application.start() for webhook mode - it starts polling
+            self.bot = self.application.bot  # Make sure this is after `initialize()`
+
+            logger.info("Configuring persistent menu")
+            await self._setup_persistent_menu()
+
+            # Initialize reminder scheduler now that bot is available
+            self.scheduler = ReminderScheduler(self.bot)
+            logger.info("Reminder scheduler initialized")
+
+            users = (await self.database.get_users_with_reminders()) or []
+            logger.info("Loaded %s users with reminders", len(users))
+            scheduled = 0
+            for user in users:
+                reminder_time = user.get("reminder_time")
+                if reminder_time:
+                    self.scheduler.schedule_daily_reminder(
+                        user["telegram_id"], reminder_time, user.get("timezone", "UTC")
+                    )
+                    scheduled += 1
+
+            if scheduled:
+                logger.info("Scheduled %s reminder jobs", scheduled)
+            else:
+                logger.info("No reminders scheduled")
+
+            self._initialized = True
+            logger.info("Bot initialized successfully")
+        except Exception:
+            logger.exception("Bot initialization failed")
+            raise
+        finally:
+            self._initializing = False
 
     async def shutdown(self):
         """Cleanup resources."""
+        if self._initializing:
+            logger.info("shutdown() waiting for initialization to complete")
+            while self._initializing:
+                await asyncio.sleep(0.1)
+        if not self._initialized:
+            logger.info("shutdown() called before initialization; skipping cleanup")
+            return
+
+        logger.info("Starting SkinHealthBot.shutdown")
         # Don't call application.stop() since we didn't start polling
-        await self.application.shutdown()
-        await self.database.close()
+        try:
+            await self.application.shutdown()
+            logger.info("Telegram application shutdown complete")
+        except Exception:
+            logger.exception("Error during application shutdown")
+
+        try:
+            await self.database.close()
+            logger.info("Database connection closed")
+        except Exception:
+            logger.exception("Error closing database connection")
+
         if self.scheduler:
-            self.scheduler.shutdown()
+            try:
+                self.scheduler.shutdown()
+                logger.info("Reminder scheduler stopped")
+            except Exception:
+                logger.exception("Failed to shut down reminder scheduler")
+            finally:
+                self.scheduler = None
+
+        self._initialized = False
         logger.info("Bot shut down successfully")
 
     async def send_main_menu(self, update: Update):

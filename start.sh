@@ -6,6 +6,14 @@ log() {
     printf '[start.sh] %s\n' "$1"
 }
 
+log "INFO: RAILWAY_ENVIRONMENT=${RAILWAY_ENVIRONMENT:-<not set>}"
+log "INFO: Hostname $(hostname)"
+if command -v python >/dev/null 2>&1; then
+    PY_VER=$(python --version 2>&1)
+    log "INFO: $PY_VER"
+fi
+log "INFO: Current PID $$"
+
 REQUIRED_VARS="
 NEXT_PUBLIC_SUPABASE_URL
 TELEGRAM_BOT_TOKEN

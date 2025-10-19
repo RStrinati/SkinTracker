@@ -4,6 +4,7 @@ from fastapi.responses import JSONResponse
 from fastapi.staticfiles import StaticFiles
 from pydantic import BaseModel
 from typing import List, Optional
+from types import SimpleNamespace
 import asyncio
 import hashlib
 import hmac
@@ -93,23 +94,58 @@ root_logger.handlers = handlers
 root_logger.setLevel(logging.INFO)
 logger = logging.getLogger(__name__)
 
+
+class MockSkinHealthBot:
+    """Fallback bot used when real initialization fails."""
+
+    def __init__(self):
+        async def _noop(*args, **kwargs):
+            logger.warning(
+                "MockSkinHealthBot noop called (args=%s, kwargs=%s)", args, kwargs
+            )
+            return None
+
+        self.database = SimpleNamespace(client=None)
+        self.application = SimpleNamespace(
+            process_update=_noop,
+            initialize=_noop,
+            shutdown=_noop,
+        )
+        self.bot = SimpleNamespace(send_message=_noop)
+
+    async def initialize(self):
+        logger.warning("MockSkinHealthBot.initialize invoked - no operation")
+
+    async def shutdown(self):
+        logger.warning("MockSkinHealthBot.shutdown invoked - no operation")
+
+    async def process_update(self, update_data):
+        logger.warning(
+            "MockSkinHealthBot.process_update ignored update_id=%s",
+            update_data.get("update_id"),
+        )
+
+    async def set_webhook(self, url: str):
+        logger.warning("MockSkinHealthBot.set_webhook skipped (url=%s)", url)
+        return False
+
+    async def delete_webhook(self):
+        logger.warning("MockSkinHealthBot.delete_webhook skipped")
+        return False
+
+
 # Initialize API router
 api_router = APIRouter(prefix="/api/v1")
 api_router.include_router(analysis_router)
 
 # Initialize bot with error handling
 try:
+    logger.info("Creating SkinHealthBot instance")
     bot = SkinHealthBot()
     logger.info("Bot instance created successfully")
-except Exception as e:
-    logger.error(f"Failed to create bot instance: {e}")
-    # Create a minimal bot object to prevent crashes
-    class MockBot:
-        def __init__(self):
-            self.database = None
-        async def initialize(self): pass
-        async def shutdown(self): pass
-    bot = MockBot()
+except Exception:
+    logger.exception("Failed to create bot instance; falling back to MockSkinHealthBot")
+    bot = MockSkinHealthBot()
 
 @asynccontextmanager
 async def lifespan(app: FastAPI):
@@ -118,6 +154,11 @@ async def lifespan(app: FastAPI):
         logger.info("Starting Skin Health Tracker Bot server...")
         logger.info(f"Environment check - Bot token available: {bool(TELEGRAM_BOT_TOKEN)}")
         logger.info(f"Environment check - Base URL: {BASE_URL}")
+        logger.info(f"Environment check - OpenAI key available: {bool(os.getenv('OPENAI_API_KEY'))}")
+        logger.info(f"Environment check - Supabase URL set: {bool(os.getenv('NEXT_PUBLIC_SUPABASE_URL'))}")
+        logger.info(
+            f"Environment check - Supabase key available: {bool(os.getenv('SUPABASE_SERVICE_ROLE_KEY') or os.getenv('NEXT_PUBLIC_SUPABASE_ANON_KEY'))}"
+        )
         logger.info(f"Components - Analysis router: {ANALYSIS_ROUTER_AVAILABLE}")
         logger.info(f"Components - Timeline router: {TIMELINE_ROUTER_AVAILABLE}")
         logger.info(f"Environment - Railway: {bool(os.getenv('RAILWAY_ENVIRONMENT'))}")
@@ -129,8 +170,8 @@ async def lifespan(app: FastAPI):
                 try:
                     await bot.initialize()
                     logger.info("Bot initialized successfully")
-                except Exception as e:
-                    logger.error(f"Bot initialization failed: {e}")
+                except Exception:
+                    logger.exception("Bot initialization failed")
             
             # Start bot initialization in background
             asyncio.create_task(init_bot_async())
@@ -363,6 +404,10 @@ async def webhook(request: Request, background_tasks: BackgroundTasks):
 
 async def process_update_safe(update_data: dict):
     from telegram.error import RetryAfter, BadRequest
+
+    if isinstance(bot, MockSkinHealthBot):
+        logger.warning("Webhook update received while bot is in mock mode; ignoring update")
+        return
 
     update = Update.de_json(update_data, bot.bot)
     chat_id = update.effective_chat.id if update.effective_chat else None
