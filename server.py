@@ -475,6 +475,7 @@ async def analyze_ingredients(req: IngredientRequest):
 
 @api_router.post("/set-webhook")
 async def set_webhook():
+    logger.info("/set-webhook invoked")
     try:
         base_url = BASE_URL
         if not base_url:
@@ -482,14 +483,17 @@ async def set_webhook():
             raise HTTPException(status_code=500, detail="BASE_URL environment variable is not configured")
 
         webhook_url = f"{base_url}/api/v1/webhook"
+        logger.info("Setting Telegram webhook to %s", webhook_url)
         success = await bot.set_webhook(webhook_url)
+        logger.info("Telegram set_webhook returned %s", success)
 
         if success:
             return {"message": f"Webhook set successfully to {webhook_url}"}
         else:
+            logger.error("Telegram set_webhook returned falsy response")
             raise HTTPException(status_code=500, detail="Failed to set webhook")
-    except Exception as e:
-        logger.error(f"Error setting webhook: {e}")
+    except Exception:
+        logger.exception("Error setting webhook")
         raise HTTPException(status_code=500, detail="Failed to set webhook")
 
 @api_router.delete("/webhook")
